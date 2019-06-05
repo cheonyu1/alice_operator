@@ -1,2 +1,2 @@
 # alice_operator
-HERoEHS's alice operator
+This is the operator package of HERoEHS's humanoid robot, "Alice".
