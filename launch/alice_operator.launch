@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+
+  <node name="alice_operator_node" pkg="alice_operator" type="alice_operator_node" output="screen">
+    <!-- <param name="path" type="str" value="/home/alice1-nuke/logs/robocup_2018/referee" /> -->
+  </node>
+
+</launch>
+
