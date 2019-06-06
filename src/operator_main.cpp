@@ -3,19 +3,23 @@
 #include <mutex>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 
 #include <ros/ros.h>
 #include <std_msgs/Int8.h>
 #include <alice_msgs/MoveCommand.h>
 
-#include <RoboCupGameControlData.h>
+#include "alice_operator/RoboCupGameControlData.h"
 
 using namespace std;
 
 mutex mtx;
 
-void UDP_Thread();
 void ROS_Thread();
+void UDP_Thread();
+void PrintRobotInfo(RobotInfo &player);
+void PrintTeamInfo(TeamInfo &team, int num);
+void PrintControlData(RoboCupGameControlData &control_data);
 
 int main(int argc, char **argv)
 {
@@ -37,34 +41,139 @@ int main(int argc, char **argv)
   return 0;
 }
 
-
-void UDP_Thread()
-{
-  int i=0;
-  while(ros::ok())
-  {
-    mtx.lock();
-    cout << "thread loop : " << i << endl;
-    mtx.unlock();
-    i++;
-    usleep(1000000);
-  }
-}
-
 void ROS_Thread()
 {
   while(ros::ok())
   {
-    mtx.lock();
-    cout << "ros main loop. " << endl;
-    mtx.unlock();
     ros::spinOnce();
     usleep(10);
   }
 }
 
+void UDP_Thread()
+{
+  int broadcast = 1;
+  // make socket variable
+  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  struct timeval timeout_val = {1, 0};
+  if(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) == -1) exit(1);
+  if(setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout_val, sizeof(timeout_val)) == -1) exit(1);
 
+  // make variable for communicate
+  sockaddr_in controller_addr;
 
+  //bzero(&peer_addr, sizeof(peer_addr)); // set it 0
+  controller_addr.sin_family = AF_INET;
+  controller_addr.sin_port = htons(GAMECONTROLLER_DATA_PORT);
+  controller_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
+  bind(sock, (sockaddr*)&controller_addr, sizeof(controller_addr));
+
+  struct RoboCupGameControlData control_data; // buffer
+
+  // make variable for communicate
+  sockaddr_in client_addr; // sender's address
+  socklen_t client_addr_len;
+
+  int recv_len;
+
+  while(ros::ok())
+  {
+    client_addr_len = sizeof(client_addr);
+    recv_len = recvfrom(sock, (char*)&control_data, sizeof(control_data), 0, (sockaddr*)&client_addr, &client_addr_len);
+    if(recv_len > 0)
+    {
+      mtx.lock();
+      PrintControlData(control_data);
+      mtx.unlock();
+    }
+  }
+  close(sock);
+}
+
+void PrintControlData(RoboCupGameControlData &control_data)
+{
+  cout << endl;
+  cout << "------[ GameControlData ]--------------------------------" << endl;
+  cout << endl;
+  // header of the data structure
+  cout << "               header : " << (string)control_data.header << endl;
+  // version of the data structure
+  cout << "              version : " << (int)control_data.version << endl;
+  //  number incremented with each packet sent (with wraparound)
+  cout << "        packet number : " << (int)control_data.packetNumber << endl;
+  // the number of players on a team
+  cout << "      player per team : " << (int)control_data.playersPerTeam << endl;
+  // game type (GAME_ROUNDROBIN, GAME_PLAYOFF, GAME_DROPIN)
+  cout << "            game type : " << (int)control_data.gameType << endl;
+  // state of the game (STATE_READY, STATE_PLAYING, etc)
+  cout << "                state : " << (int)control_data.state << endl;
+  // 1 = game in first half, 0 otherwise
+  cout << "           first harf : " << (int)control_data.firstHalf << endl;
+  // the team number of the next team to kick off or DROPBALL
+  cout << "        kick off Team : " << (int)control_data.kickOffTeam << endl;
+  // extra state information - (STATE2_NORMAL, STATE2_PENALTYSHOOT, etc)
+  cout << "      secondary state : " << (int)control_data.secondaryState << endl;
+  // Extra info on the secondary state
+  cout << " secondary state info : " << (string)control_data.secondaryStateInfo << endl;
+  // number of team that caused last drop in
+  cout << "         drop in team : " << (int)control_data.dropInTeam << endl;
+  // number of seconds passed since the last drop in. -1  (0xffff) before first dropin
+  cout << "         drop in time : " << (int)control_data.dropInTime << endl;
+  // estimate of number of seconds remaining in the half
+  cout << "       secs remaining : " << (int)control_data.secsRemaining << endl;
+  // number of seconds shown as secondary time (remaining  ready, until free ball, etc)
+  cout << "       secondary time : " << (int)control_data.secondaryTime << endl;
+  cout << endl;
+  cout << "---------------------------------------------------------" << endl;
+  cout << endl;
+
+  for(int i=0 ; i<2 ; i++)
+  {
+    cout << "------[ Team Number " << (int)control_data.teams[i].teamNumber << " ]----------------------------------" << endl;
+    PrintTeamInfo(control_data.teams[i], (int)control_data.playersPerTeam);
+  }
+  //cout << endl;
+}
+
+void PrintTeamInfo(TeamInfo &team, int num)
+{
+  cout << "    team colour : " << (int)team.teamColour << endl;    // colour of the team
+  cout << "          score : " << (int)team.score << endl;         // team's score
+  cout << "   penalty shot : " << (int)team.penaltyShot << endl;   // penalty shot counter
+  cout << "   single shots : " << (int)team.singleShots << endl;   // bits represent penalty shot success
+  cout << " coach sequence : " << (int)team.coachSequence << endl; // sequence number of the coach's message
+//  cout << "  coach message : ";
+//  for(int i=0 ; i<SPL_COACH_MESSAGE_SIZE ; i++)
+//    cout << (int)team.coachMessage[i] << ", ";  // the coach's message to the team
+//  cout << endl;
+  cout << endl;
+  cout << "---------------------------------------------------------" << endl;
+  cout << endl;
+
+  cout << "------[ Coach ]------------------------------------------" << endl;
+  PrintRobotInfo(team.coach);
+
+  for(int i=0 ; i<num ; i++)
+  {
+    cout << "------[ Player " << i+1 << " ]---------------------------------------" << endl;
+    PrintRobotInfo(team.players[i]);
+  }
+  cout << "---------------------------------------------------------" << endl;
+  cout << endl;
+}
+
+void PrintRobotInfo(RobotInfo &player)
+{
+  // penalty state of the player
+  cout << "             penalty : " << (int)player.penalty << endl;
+  // estimate of time till unpenalised
+  cout << " secsTillUnpenalised : " << (int)player.secsTillUnpenalised << endl;
+  // number of yellow cards
+  cout << "   yellow card count : " << (int)player.yellowCardCount << endl;
+  // number of red cards
+  cout << "      red card count : " << (int)player.redCardCount << endl;
+  cout << endl;
+}
 
 
 
