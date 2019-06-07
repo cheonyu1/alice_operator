@@ -13,18 +13,22 @@
 
 using namespace std;
 
-mutex mtx;
-
 void ROS_Thread();
 void UDP_Thread();
+void RobotInit();
+void SetRobotData();
 void PrintRobotInfo(RobotInfo &player);
 void PrintTeamInfo(TeamInfo &team, int num);
 void PrintControlData(RoboCupGameControlData &control_data);
 
+struct RoboCupGameControlData control_data; // buffer
+struct RoboCupGameControlReturnData robot_data;
+
+mutex mtx;
+
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "alice_operator_node");
-  ros::NodeHandle nh;
 
   thread udp_recv(UDP_Thread);
   thread ros_main(ROS_Thread);
@@ -43,11 +47,27 @@ int main(int argc, char **argv)
 
 void ROS_Thread()
 {
+  ros::NodeHandle nh;
+
+  RobotInit();
+
   while(ros::ok())
   {
     ros::spinOnce();
     usleep(10);
   }
+}
+
+void RobotInit()
+{
+  SetRobotData();
+}
+
+void SetRobotData()
+{
+  robot_data.team    = 24;
+  robot_data.player  = 1;
+  robot_data.message = GAMECONTROLLER_RETURN_MSG_ALIVE;
 }
 
 void UDP_Thread()
@@ -56,8 +76,9 @@ void UDP_Thread()
   // make socket variable
   int sock = socket(AF_INET, SOCK_DGRAM, 0);
   struct timeval timeout_val = {1, 0};
-  if(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) == -1) exit(1);
-  if(setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout_val, sizeof(timeout_val)) == -1) exit(1);
+  if(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) == -1)
+    exit(1);
+  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout_val, sizeof(timeout_val));
 
   // make variable for communicate
   sockaddr_in controller_addr;
@@ -68,11 +89,13 @@ void UDP_Thread()
   controller_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
   bind(sock, (sockaddr*)&controller_addr, sizeof(controller_addr));
 
-  struct RoboCupGameControlData control_data; // buffer
-
   // make variable for communicate
   sockaddr_in client_addr; // sender's address
   socklen_t client_addr_len;
+
+  //client_addr.sin_family = AF_INET;
+  //client_addr.sin_port = htons(GAMECONTROLLER_RETURN_PORT);
+  //client_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
 
   int recv_len;
 
@@ -86,6 +109,8 @@ void UDP_Thread()
       PrintControlData(control_data);
       mtx.unlock();
     }
+    client_addr.sin_port = htons(GAMECONTROLLER_RETURN_PORT);
+    sendto(sock, (char*)&robot_data, sizeof(robot_data), 0, (sockaddr*)&client_addr, sizeof(client_addr));
   }
   close(sock);
 }
@@ -142,10 +167,10 @@ void PrintTeamInfo(TeamInfo &team, int num)
   cout << "   penalty shot : " << (int)team.penaltyShot << endl;   // penalty shot counter
   cout << "   single shots : " << (int)team.singleShots << endl;   // bits represent penalty shot success
   cout << " coach sequence : " << (int)team.coachSequence << endl; // sequence number of the coach's message
-//  cout << "  coach message : ";
-//  for(int i=0 ; i<SPL_COACH_MESSAGE_SIZE ; i++)
-//    cout << (int)team.coachMessage[i] << ", ";  // the coach's message to the team
-//  cout << endl;
+  //  cout << "  coach message : ";
+  //  for(int i=0 ; i<SPL_COACH_MESSAGE_SIZE ; i++)
+  //    cout << (int)team.coachMessage[i] << ", ";  // the coach's message to the team
+  //  cout << endl;
   cout << endl;
   cout << "---------------------------------------------------------" << endl;
   cout << endl;
