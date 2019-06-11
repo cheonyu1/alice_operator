@@ -1,6 +1,8 @@
 #include <iostream>
+#include <fstream>
 #include <thread>
 #include <mutex>
+#include <pwd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -16,7 +18,7 @@ using namespace std;
 void ROS_Thread();
 void UDP_Thread();
 void RobotInit();
-void SetRobotData();
+string EraseChar(string &str, char target);
 void PrintRobotInfo(RobotInfo &player);
 void PrintTeamInfo(TeamInfo &team, int num);
 void PrintControlData(RoboCupGameControlData &control_data);
@@ -25,6 +27,8 @@ struct RoboCupGameControlData control_data; // buffer
 struct RoboCupGameControlReturnData robot_data;
 
 mutex mtx;
+
+ifstream robot_cfg;
 
 int main(int argc, char **argv)
 {
@@ -39,11 +43,16 @@ int main(int argc, char **argv)
     exit(0);
   }
 
-  udp_recv.join();
   ros_main.join();
+  udp_recv.join();
 
   return 0;
 }
+
+
+
+
+
 
 void ROS_Thread()
 {
@@ -60,15 +69,63 @@ void ROS_Thread()
 
 void RobotInit()
 {
-  SetRobotData();
+  passwd *user = getpwuid(getuid());
+  string file_path = string(user->pw_dir) + "/catkin_ws/src/alice_operator/config/robot_cfg.txt";
+
+  robot_cfg.open(file_path);
+
+  while(!robot_cfg.eof())
+  {
+    string input_str;
+    getline(robot_cfg, input_str);
+    input_str = EraseChar(input_str, ' ');
+
+    if(input_str.length() > 0)
+    {
+      string component[2];
+      int value = 0;
+      int str_p = input_str.find('|');
+
+      component[0].assign(input_str, 0, str_p);
+
+      if(str_p < input_str.length())
+      {
+        component[1].assign(input_str, str_p+1, input_str.length()-str_p-1);
+        value = atoi(component[1].c_str());
+      }
+
+      if(component[0].compare("player_number") == 0)
+        robot_data.player = value;
+      else if(component[0].compare("team_number") == 0)
+        robot_data.team = value;
+    }
+  }
+
+  robot_cfg.close();
+
+  // GAMECONTROLLER_RETURN_MSG_MAN_PENALISE   0
+  // GAMECONTROLLER_RETURN_MSG_MAN_UNPENALISE 1
+  // GAMECONTROLLER_RETURN_MSG_MAN_ALIVE      2
+  robot_data.message = GAMECONTROLLER_RETURN_MSG_ALIVE;
+
+//  cout << "  team number : "<< (int)robot_data.team << endl;
+//  cout << "player number : "<< (int)robot_data.player << endl;
+//  cout << "      message : "<< (int)robot_data.message << endl;
 }
 
-void SetRobotData()
+string EraseChar(string &str, char target)
 {
-  robot_data.team    = 24;
-  robot_data.player  = 1;
-  robot_data.message = GAMECONTROLLER_RETURN_MSG_ALIVE;
+  string temp;
+  for(int i=0 ; i<str.length() ; i++)
+    if(str[i] != target)
+      temp += str[i];
+  return temp;
 }
+
+
+
+
+
 
 void UDP_Thread()
 {
