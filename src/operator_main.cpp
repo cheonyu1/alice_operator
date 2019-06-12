@@ -30,8 +30,138 @@ struct RoboCupGameControlReturnData robot_data;
 
 mutex mtx;
 
+struct Vector3
+{
+  float x=0;
+  float y=0;
+  float z=0;
+};
 
+class Alice
+{
+public:
 
+  enum State
+  {
+    Initial, 
+    Ready, 
+    Set, 
+    Play, 
+  };
+  enum Strategy
+  {
+    GoalKeep, 
+    Attack, 
+    Defence, 
+    Search
+  };
+
+  int id;
+  Vector3 position;
+  Vector3 destination;
+
+  State state;
+  Strategy strategy;
+
+  int team_index;
+
+  uint8_t last_packet_num;
+
+  Alice():state(Initial), last_packet_num(0)
+  {
+    id = robot_data.player-1;
+  };
+
+  void Update()
+  {
+    if(last_packet_num < control_data.packetNumber)
+    {
+      last_packet_num = control_data.packetNumber;
+      CheckTeamIndex();
+    }
+
+    if(team_index >= 0)
+    {
+      if(control_data.teams[team_index].players[id].penalty == PENALTY_NONE)
+      {
+        switch(control_data.state)
+        {
+        case STATE_INITIAL:
+          state = Initial;
+          break;
+        case STATE_READY:
+          state = Ready;
+          break;
+        case STATE_SET:
+          state = Set;
+          break;
+        case STATE_PLAYING:
+          state = Play;
+          break;
+        case STATE_FINISHED:
+          state = Initial;
+          break;
+        default:
+          state = Initial;
+          break;
+        }
+      }
+      else
+      {
+        state = Initial;
+      }
+    }
+    else
+    {
+      state = Initial;
+    }
+
+    SetStrategy();
+    Move();
+  }
+
+private:
+
+  void SetStrategy()
+  {
+    if(state == Ready)
+    {
+      // initial every information. map, my position, etc.
+      destination = position;
+    }
+    else if(state == Set)
+    {
+      // go to the start point. 
+      destination.x = 450;
+      destination.y = 300;
+    }
+    else if(state == Play)
+    {
+      // gaming. 
+    }
+    else
+    {
+      // go to init pose and stop and do nothing. 
+    }
+  }
+
+  void Move()
+  {
+    //if(destination)
+  }
+
+  void CheckTeamIndex()
+  {
+    team_index = -1;
+    for(int i=0 ; i<2 ; i++)
+    {
+      if(control_data.teams[i].teamNumber == robot_data.team)
+      {
+        team_index = i;
+      }
+    }
+  }
+};
 
 int main(int argc, char **argv)
 {
@@ -55,23 +185,21 @@ int main(int argc, char **argv)
 
 
 
-
-
 void ROS_Thread()
 {
   ros::NodeHandle nh;
 
   RobotInit();
 
-//  ros::Subscriber sub_game_state = nh.subscribe("/heroehs/alice/robot_info", 10, RobotInfoCallback);
+  //  ros::Subscriber sub_game_state = nh.subscribe("/heroehs/alice/robot_info", 10, RobotInfoCallback);
   ros::Publisher pub_move_cmd = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
 
   diagnostic_msgs::KeyValue msg;
 
   while(ros::ok())
   {
-    msg.key   = "a";
-    msg.value = "10";
+    msg.key   = "forward";
+    msg.value = "3";
     pub_move_cmd.publish(msg);
     ros::spinOnce();
     usleep(10);
@@ -98,9 +226,9 @@ void RobotInit()
   // GAMECONTROLLER_RETURN_MSG_MAN_ALIVE      2
   robot_data.message = GAMECONTROLLER_RETURN_MSG_ALIVE;
 
-//  cout << "   team number : "<< (int)robot_data.team << endl;
-//  cout << " player number : "<< (int)robot_data.player << endl;
-//  cout << "       message : "<< (int)robot_data.message << endl;
+  //  cout << "   team number : "<< (int)robot_data.team << endl;
+  //  cout << " player number : "<< (int)robot_data.player << endl;
+  //  cout << "       message : "<< (int)robot_data.message << endl;
 }
 
 void ReadConf(string file_path, string *result, string *opt, int len)
