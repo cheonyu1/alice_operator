@@ -9,7 +9,8 @@
 
 #include <ros/ros.h>
 #include <std_msgs/Int8.h>
-#include <alice_msgs/MoveCommand.h>
+#include <diagnostic_msgs/KeyValue.h>
+//#include <alice_msgs/MoveCommand.h>
 
 #include "alice_operator/RoboCupGameControlData.h"
 
@@ -18,6 +19,7 @@ using namespace std;
 void ROS_Thread();
 void UDP_Thread();
 void RobotInit();
+void ReadConf(string file_path, string *result, string *opt, int len);
 string EraseChar(string &str, char target);
 void PrintRobotInfo(RobotInfo &player);
 void PrintTeamInfo(TeamInfo &team, int num);
@@ -28,7 +30,8 @@ struct RoboCupGameControlReturnData robot_data;
 
 mutex mtx;
 
-ifstream robot_cfg;
+
+
 
 int main(int argc, char **argv)
 {
@@ -60,57 +63,75 @@ void ROS_Thread()
 
   RobotInit();
 
+//  ros::Subscriber sub_game_state = nh.subscribe("/heroehs/alice/robot_info", 10, RobotInfoCallback);
+  ros::Publisher pub_move_cmd = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
+
+  diagnostic_msgs::KeyValue msg;
+
   while(ros::ok())
   {
+    msg.key   = "a";
+    msg.value = "10";
+    pub_move_cmd.publish(msg);
     ros::spinOnce();
     usleep(10);
   }
 }
+
 
 void RobotInit()
 {
   passwd *user = getpwuid(getuid());
   string file_path = string(user->pw_dir) + "/catkin_ws/src/alice_operator/config/robot_cfg.txt";
 
-  robot_cfg.open(file_path);
+  string option[] = { 
+    "player_number", 
+    "team_number"};
+  string value[2];
 
-  while(!robot_cfg.eof())
-  {
-    string input_str;
-    getline(robot_cfg, input_str);
-    input_str = EraseChar(input_str, ' ');
+  ReadConf(file_path, value, option, 2);
 
-    if(input_str.length() > 0)
-    {
-      string component[2];
-      int value = 0;
-      int str_p = input_str.find('|');
-
-      component[0].assign(input_str, 0, str_p);
-
-      if(str_p < input_str.length())
-      {
-        component[1].assign(input_str, str_p+1, input_str.length()-str_p-1);
-        value = atoi(component[1].c_str());
-      }
-
-      if(component[0].compare("player_number") == 0)
-        robot_data.player = value;
-      else if(component[0].compare("team_number") == 0)
-        robot_data.team = value;
-    }
-  }
-
-  robot_cfg.close();
-
+  robot_data.player = atoi(value[0].c_str());
+  robot_data.team   = atoi(value[1].c_str());
   // GAMECONTROLLER_RETURN_MSG_MAN_PENALISE   0
   // GAMECONTROLLER_RETURN_MSG_MAN_UNPENALISE 1
   // GAMECONTROLLER_RETURN_MSG_MAN_ALIVE      2
   robot_data.message = GAMECONTROLLER_RETURN_MSG_ALIVE;
 
-//  cout << "  team number : "<< (int)robot_data.team << endl;
-//  cout << "player number : "<< (int)robot_data.player << endl;
-//  cout << "      message : "<< (int)robot_data.message << endl;
+//  cout << "   team number : "<< (int)robot_data.team << endl;
+//  cout << " player number : "<< (int)robot_data.player << endl;
+//  cout << "       message : "<< (int)robot_data.message << endl;
+}
+
+void ReadConf(string file_path, string *result, string *opt, int len)
+{
+  ifstream file;
+  file.open(file_path);
+
+  while(!file.eof())
+  {
+    string input_str;
+    getline(file, input_str);
+    input_str = EraseChar(input_str, ' ');
+    cout << input_str << endl;
+
+    for(int i=0 ; i<len ; i++)
+    {
+      if(input_str.find(opt[i]) != string::npos)
+      {
+        int str_p = input_str.find('|');
+
+        if(str_p < input_str.length())
+        {
+          result[i].assign(input_str, str_p+1, input_str.length() - (str_p+1));
+        }
+
+        break;
+      }
+    }
+  }
+
+  file.close();
 }
 
 string EraseChar(string &str, char target)
