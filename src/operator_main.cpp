@@ -10,9 +10,16 @@
 #include <ros/ros.h>
 #include <std_msgs/Int8.h>
 #include <diagnostic_msgs/KeyValue.h>
-//#include <alice_msgs/MoveCommand.h>
+#include <alice_msgs/FoundObjectArray.h>
 
 #include "alice_operator/RoboCupGameControlData.h"
+
+struct Vector3
+{
+  float x=0;
+  float y=0;
+  float z=0;
+};
 
 using namespace std;
 
@@ -24,18 +31,14 @@ string EraseChar(string &str, char target);
 void PrintRobotInfo(RobotInfo &player);
 void PrintTeamInfo(TeamInfo &team, int num);
 void PrintControlData(RoboCupGameControlData &control_data);
+void VisionCallback(const alice_msgs::FoundObjectArray &msg);
 
 struct RoboCupGameControlData control_data; // buffer
 struct RoboCupGameControlReturnData robot_data;
 
 mutex mtx;
 
-struct Vector3
-{
-  float x=0;
-  float y=0;
-  float z=0;
-};
+Vector3 ball;
 
 class Alice
 {
@@ -184,6 +187,7 @@ int main(int argc, char **argv)
 
 
 
+Alice alice;
 
 void ROS_Thread()
 {
@@ -191,13 +195,14 @@ void ROS_Thread()
 
   RobotInit();
 
-  //  ros::Subscriber sub_game_state = nh.subscribe("/heroehs/alice/robot_info", 10, RobotInfoCallback);
-  ros::Publisher pub_move_cmd = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
+  ros::Subscriber sub_ball_pos = nh.subscribe("/heroehs/detected_objects", 10, VisionCallback);
+  ros::Publisher pub_move_cmd  = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
 
   diagnostic_msgs::KeyValue msg;
 
   while(ros::ok())
   {
+    alice.Update();
     msg.key   = "forward";
     msg.value = "3";
     pub_move_cmd.publish(msg);
@@ -206,11 +211,24 @@ void ROS_Thread()
   }
 }
 
+void VisionCallback(const alice_msgs::FoundObjectArray &msg)
+{
+  for(int i=0 ; i<msg.length ; i++)
+  {
+    if(msg.data[i].name.compare("ball") == 0)
+    {
+      ball.x = msg.data[i].pos.x;
+      ball.y = msg.data[i].pos.y;
+      ball.z = msg.data[i].pos.z;
+      break;
+    }
+  }
+}
 
 void RobotInit()
 {
   passwd *user = getpwuid(getuid());
-  string file_path = string(user->pw_dir) + "/catkin_ws/src/alice_operator/config/robot_cfg.txt";
+  string file_path = string(user->pw_dir) + "/catkin_ws/src/alice_operator/config/robot.cfg";
 
   string option[] = { 
     "player_number", 
@@ -241,7 +259,7 @@ void ReadConf(string file_path, string *result, string *opt, int len)
     string input_str;
     getline(file, input_str);
     input_str = EraseChar(input_str, ' ');
-    cout << input_str << endl;
+    //cout << input_str << endl;
 
     for(int i=0 ; i<len ; i++)
     {
