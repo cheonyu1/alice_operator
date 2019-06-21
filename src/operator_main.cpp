@@ -14,6 +14,8 @@
 
 #include "alice_operator/RoboCupGameControlData.h"
 
+#define PI 3.14159294
+
 struct Vector3
 {
   float x=0;
@@ -53,36 +55,87 @@ public:
   };
   enum Strategy
   {
+    Stop, 
+    GoToSetPosition,
     GoalKeep, 
     Attack, 
     Defence, 
-    Search
   };
 
   int id;
+  Vector3 map_size;
+  Vector3 set_position;
   Vector3 position;
   Vector3 destination;
 
   State state;
   Strategy strategy;
+  diagnostic_msgs::KeyValue move_cmd;
 
   int team_index;
 
+  bool ball_found;
+  float dist_to_ball;
+  float angle_to_ball;
+  Vector3 ball_global;
   uint8_t last_packet_num;
 
   Alice():state(Initial), last_packet_num(0)
   {
-    id = robot_data.player-1;
   };
+
+  void Init()
+  {
+    id = robot_data.player-1;
+    map_size.x = 14;
+    map_size.y = 9;
+  }
 
   void Update()
   {
-    if(last_packet_num < control_data.packetNumber)
+    ReadControlData();
+    SetStrategy();
+    SetDestination();
+    Move();
+  }
+
+private:
+
+  void UpdateSetPosition()
+  {
+    set_position.y = map_size.y/2;
+    set_position.z = 0;
+
+    if(robot_data.player == 1)
+    {
+      if(control_data.kickOffTeam == robot_data.team)
+        set_position.x = map_size.x/2 - 1;
+      else
+        set_position.x = map_size.x/2 - 2;
+      
+    }
+    else if(robot_data.player == 2)
+    {
+      set_position.x = 0.5;
+    }
+
+    if(team_index == 1)
+    {
+      set_position.x = map_size.x - set_position.x;
+      set_position.z = 180;
+    }
+  }
+
+  void ReadControlData()
+  {
+    // read control command & check packet number & get team index. 
+    if(last_packet_num != control_data.packetNumber)
     {
       last_packet_num = control_data.packetNumber;
       CheckTeamIndex();
     }
 
+    // if team index is available, update local state. 
     if(team_index >= 0)
     {
       if(control_data.teams[team_index].players[id].penalty == PENALTY_NONE)
@@ -118,39 +171,138 @@ public:
     {
       state = Initial;
     }
-
-    SetStrategy();
-    Move();
   }
-
-private:
 
   void SetStrategy()
   {
-    if(state == Ready)
+    switch(state)
     {
-      // initial every information. map, my position, etc.
-      destination = position;
-    }
-    else if(state == Set)
-    {
+    case Ready:
       // go to the start point. 
-      destination.x = 450;
-      destination.y = 300;
+      strategy = GoToSetPosition;
+      break;
+    case Set:
+      strategy = Stop;
+      break;
+    case Play:
+      if(robot_data.player == 2)
+        strategy = GoalKeep;
+      else
+        strategy = Attack;
+      break;
+    default:
+      strategy = Stop;
+      break;
     }
-    else if(state == Play)
+  }
+
+  void SetDestination()
+  {
+    switch(strategy)
     {
-      // gaming. 
+    case Stop:
+      destination = position;
+      break;
+
+    case GoToSetPosition:
+      UpdateSetPosition();
+      destination = set_position;
+      break;
+
+    case GoalKeep:
+      destination = position;
+      if(team_index == 0)
+        destination.z = 0;
+      else
+        destination.z = 180;
+      break;
+
+    case Attack:
+      UpdateBall();
+      destination = ball_global;
+      break;
+
+    default:
+      destination = position;
+      break;
     }
-    else
+  }
+
+  void UpdateBall()
+  {
+    // for test
+    ball_found = true;
+    if(ball_found)
     {
-      // go to init pose and stop and do nothing. 
+      dist_to_ball = sqrt(pow(ball.x, 2) + (pow(ball.y, 2)));
+      angle_to_ball = atan2(ball.y, ball.x) * 180/PI;
+
+      ball_global.x = position.x + (cos(position.z/180*PI)*ball.x) - (sin(position.z/180*PI)*ball.y);
+      ball_global.y = position.y + (sin(position.z/180*PI)*ball.x) + (cos(position.z/180*PI)*ball.y);
     }
   }
 
   void Move()
   {
-    //if(destination)
+    float dist_to_dest = sqrt(pow(destination.x-position.x, 2) + (pow(destination.y-position.y, 2)));
+    float angle_to_dest = atan2(destination.y-position.y, destination.x-position.x) * 180/PI - destination.z;
+
+    // position, destination
+    if( strategy != Stop && 
+        dist_to_dest > 0.2 )
+    {
+      if( dist_to_dest > 2 )
+      {
+        float ref_angle = 30;
+        if( angle_to_dest < ref_angle && angle_to_dest > -ref_angle )
+        {
+          move_cmd.key = "forward";
+          move_cmd.value = "3";
+        }
+        else if( angle_to_dest > 90 || angle_to_dest < -90 )
+        {
+          move_cmd.key = "backward";
+          move_cmd.value = "3";
+        }
+        else if(angle_to_dest > 0)
+        {
+          move_cmd.key = "turn_left";
+          move_cmd.value = "3";
+        }
+        else if(angle_to_dest < 0)
+        {
+          move_cmd.key = "turn_right";
+          move_cmd.value = "3";
+        }
+      }
+      else
+      {
+        if( angle_to_dest > 10 )
+        {
+          move_cmd.key = "turn_left_precision";
+          char tmp[10];
+          sprintf(tmp, "%f", angle_to_dest);
+          move_cmd.value = tmp;
+        }
+        if( angle_to_dest < -10 )
+        {
+          move_cmd.key = "turn_right_precision";
+          char tmp[10];
+          sprintf(tmp, "%f", -angle_to_dest);
+          move_cmd.value = tmp;
+        }
+        else
+        {
+          move_cmd.key = "stop";
+          move_cmd.value = "3";
+        }
+      }
+    }
+    else
+    {
+      move_cmd.key = "stop";
+      move_cmd.value = "0";
+    }
   }
 
   void CheckTeamIndex()
@@ -194,17 +346,26 @@ void ROS_Thread()
   ros::NodeHandle nh;
 
   RobotInit();
+  if(robot_data.player <= 0)
+  {
+    cout << "Wrong robot id. " << endl;
+    exit(1);
+  }
 
   ros::Subscriber sub_ball_pos = nh.subscribe("/heroehs/detected_objects", 10, VisionCallback);
   ros::Publisher pub_move_cmd  = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
 
   diagnostic_msgs::KeyValue msg;
 
+  alice.Init();
+
   while(ros::ok())
   {
+    mtx.lock();
     alice.Update();
-    msg.key   = "forward";
-    msg.value = "3";
+    mtx.unlock();
+
+    msg = alice.move_cmd;
     pub_move_cmd.publish(msg);
     ros::spinOnce();
     usleep(10);
@@ -345,13 +506,13 @@ void PrintControlData(RoboCupGameControlData &control_data)
   cout << "------[ GameControlData ]--------------------------------" << endl;
   cout << endl;
   // header of the data structure
-  cout << "               header : " << (string)control_data.header << endl;
+  //  cout << "               header : " << (string)control_data.header << endl;
   // version of the data structure
-  cout << "              version : " << (int)control_data.version << endl;
+  //  cout << "              version : " << (int)control_data.version << endl;
   //  number incremented with each packet sent (with wraparound)
   cout << "        packet number : " << (int)control_data.packetNumber << endl;
   // the number of players on a team
-  cout << "      player per team : " << (int)control_data.playersPerTeam << endl;
+  //  cout << "      player per team : " << (int)control_data.playersPerTeam << endl;
   // game type (GAME_ROUNDROBIN, GAME_PLAYOFF, GAME_DROPIN)
   cout << "            game type : " << (int)control_data.gameType << endl;
   // state of the game (STATE_READY, STATE_PLAYING, etc)
@@ -378,19 +539,22 @@ void PrintControlData(RoboCupGameControlData &control_data)
 
   for(int i=0 ; i<2 ; i++)
   {
-    cout << "------[ Team Number " << (int)control_data.teams[i].teamNumber << " ]----------------------------------" << endl;
-    PrintTeamInfo(control_data.teams[i], (int)control_data.playersPerTeam);
+    if(control_data.teams[i].teamNumber == robot_data.team)
+    {
+      cout << "------[ Team Number " << (int)control_data.teams[i].teamNumber << " ]----------------------------------" << endl;
+      PrintTeamInfo(control_data.teams[i], (int)control_data.playersPerTeam);
+    }
   }
   //cout << endl;
 }
 
 void PrintTeamInfo(TeamInfo &team, int num)
 {
-  cout << "    team colour : " << (int)team.teamColour << endl;    // colour of the team
+  //cout << "    team colour : " << (int)team.teamColour << endl;    // colour of the team
   cout << "          score : " << (int)team.score << endl;         // team's score
   cout << "   penalty shot : " << (int)team.penaltyShot << endl;   // penalty shot counter
   cout << "   single shots : " << (int)team.singleShots << endl;   // bits represent penalty shot success
-  cout << " coach sequence : " << (int)team.coachSequence << endl; // sequence number of the coach's message
+  //cout << " coach sequence : " << (int)team.coachSequence << endl; // sequence number of the coach's message
   //  cout << "  coach message : ";
   //  for(int i=0 ; i<SPL_COACH_MESSAGE_SIZE ; i++)
   //    cout << (int)team.coachMessage[i] << ", ";  // the coach's message to the team
@@ -399,14 +563,19 @@ void PrintTeamInfo(TeamInfo &team, int num)
   cout << "---------------------------------------------------------" << endl;
   cout << endl;
 
-  cout << "------[ Coach ]------------------------------------------" << endl;
-  PrintRobotInfo(team.coach);
-
-  for(int i=0 ; i<num ; i++)
+  if(robot_data.player >= 1 && robot_data.player <= 4)
   {
-    cout << "------[ Player " << i+1 << " ]---------------------------------------" << endl;
-    PrintRobotInfo(team.players[i]);
+    cout << "------[ Player " << (int)robot_data.player << " ]---------------------------------------" << endl;
+    PrintRobotInfo(team.players[robot_data.player-1]);
   }
+  //cout << "------[ Coach ]------------------------------------------" << endl;
+  //PrintRobotInfo(team.coach);
+
+  //  for(int i=0 ; num ; i++)
+  //  {
+  //    cout << "------[ Player " << i+1 << " ]---------------------------------------" << endl;
+  //    PrintRobotInfo(team.players[i]);
+  //  }
   cout << "---------------------------------------------------------" << endl;
   cout << endl;
 }
