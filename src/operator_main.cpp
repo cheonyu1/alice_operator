@@ -11,6 +11,7 @@
 #include <std_msgs/Int8.h>
 #include <diagnostic_msgs/KeyValue.h>
 #include <alice_msgs/FoundObjectArray.h>
+#include <geometry_msgs/Vector3.h>
 
 #include "alice_operator/RoboCupGameControlData.h"
 
@@ -34,6 +35,7 @@ void PrintRobotInfo(RobotInfo &player);
 void PrintTeamInfo(TeamInfo &team, int num);
 void PrintControlData(RoboCupGameControlData &control_data);
 void VisionCallback(const alice_msgs::FoundObjectArray &msg);
+void RobotPosCallback(const geometry_msgs::Vector3 &msg);
 
 struct RoboCupGameControlData control_data; // buffer
 struct RoboCupGameControlReturnData robot_data;
@@ -64,13 +66,15 @@ public:
 
   int id;
   Vector3 map_size;
-  Vector3 set_position;
+  Vector3 set_point;
+  Vector3 shot_point;
   Vector3 position;
   Vector3 destination;
 
   State state;
   Strategy strategy;
   diagnostic_msgs::KeyValue move_cmd;
+  int speed;
 
   int team_index;
 
@@ -80,7 +84,7 @@ public:
   Vector3 ball_global;
   uint8_t last_packet_num;
 
-  Alice():state(Initial), last_packet_num(0)
+  Alice():state(Initial), last_packet_num(0), speed(3)
   {
   };
 
@@ -101,28 +105,37 @@ public:
 
 private:
 
-  void UpdateSetPosition()
+  void UpdatePoints()
   {
-    set_position.y = map_size.y/2;
-    set_position.z = 0;
+    set_point.y = 0;
+    set_point.z = 0;
+    shot_point.y = 0;
+    shot_point.z = 0;
 
     if(robot_data.player == 1)
     {
       if(control_data.kickOffTeam == robot_data.team)
-        set_position.x = map_size.x/2 - 1;
+      {
+        set_point.x = -1;
+      }
       else
-        set_position.x = map_size.x/2 - 2;
-      
+      {
+        set_point.x = -2;
+      }
+      shot_point.x = 6;
     }
     else if(robot_data.player == 2)
     {
-      set_position.x = 0.5;
+      set_point.x = -6.5;
+      shot_point.x = -6;
     }
 
     if(team_index == 1)
     {
-      set_position.x = map_size.x - set_position.x;
-      set_position.z = 180;
+      set_point.x = -set_point.x;
+      set_point.z = 180;
+      shot_point.x = -shot_point.x;
+      shot_point.z = 180;
     }
   }
 
@@ -205,8 +218,8 @@ private:
       break;
 
     case GoToSetPosition:
-      UpdateSetPosition();
-      destination = set_position;
+      UpdatePoints();
+      destination = set_point;
       break;
 
     case GoalKeep:
@@ -219,7 +232,17 @@ private:
 
     case Attack:
       UpdateBall();
-      destination = ball_global;
+      if( dist_to_ball  < 0.8 && 
+          angle_to_ball < 10 && 
+          angle_to_ball > -10 )
+      {
+        destination = shot_point;
+      }
+      else
+      {
+        destination = ball_global;
+        speed = 3;
+      }
       break;
 
     default:
@@ -230,8 +253,7 @@ private:
 
   void UpdateBall()
   {
-    // for test
-    ball_found = true;
+    //ball_found = true;
     if(ball_found)
     {
       dist_to_ball = sqrt(pow(ball.x, 2) + (pow(ball.y, 2)));
@@ -247,48 +269,56 @@ private:
     float dist_to_dest = sqrt(pow(destination.x-position.x, 2) + (pow(destination.y-position.y, 2)));
     float angle_to_dest = atan2(destination.y-position.y, destination.x-position.x) * 180/PI - destination.z;
 
-    // position, destination
-    if( strategy != Stop && 
-        dist_to_dest > 0.2 )
+    char tmp[10];
+    // if destination is not nearby.
+    if( strategy != Stop && dist_to_dest > 0.2 )
     {
-      if( dist_to_dest > 2 )
+      // do something when destination is far enough.
+      if( dist_to_dest > 1 )
       {
-        float ref_angle = 30;
-        if( angle_to_dest < ref_angle && angle_to_dest > -ref_angle )
+        // go straight if destination is in front of robot. 
+        if( angle_to_dest < 30 && angle_to_dest > -30 )
         {
           move_cmd.key = "forward";
-          move_cmd.value = "3";
         }
+        // step back when destination is at the back. 
         else if( angle_to_dest > 90 || angle_to_dest < -90 )
         {
           move_cmd.key = "backward";
-          move_cmd.value = "3";
         }
+        // turn around to the destination, when it's at side. 
         else if(angle_to_dest > 0)
         {
-          move_cmd.key = "turn_left";
-          move_cmd.value = "3";
+          //move_cmd.key = "turn_left";
+          move_cmd.key = "centered_left";
         }
         else if(angle_to_dest < 0)
         {
-          move_cmd.key = "turn_right";
-          move_cmd.value = "3";
+          //move_cmd.key = "turn_right";
+          move_cmd.key = "centered_right";
         }
+        sprintf(tmp, "%d", speed);
+        move_cmd.value = tmp;
       }
+      // do something when destination is close enough. 
       else
       {
         if( angle_to_dest > 10 )
         {
           move_cmd.key = "turn_left_precision";
-          char tmp[10];
-          sprintf(tmp, "%f", angle_to_dest);
+          sprintf(tmp, "%.4f", angle_to_dest);
           move_cmd.value = tmp;
         }
-        if( angle_to_dest < -10 )
+        else if( angle_to_dest < -10 )
         {
           move_cmd.key = "turn_right_precision";
-          char tmp[10];
-          sprintf(tmp, "%f", -angle_to_dest);
+          sprintf(tmp, "%.4f", -angle_to_dest);
+          move_cmd.value = tmp;
+        }
+        else if( dist_to_dest > 0.5 )
+        {
+          move_cmd.key = "forward_precision";
+          sprintf(tmp, "%.4f", dist_to_dest);
           move_cmd.value = tmp;
         }
         else
@@ -301,7 +331,7 @@ private:
     else
     {
       move_cmd.key = "stop";
-      move_cmd.value = "0";
+      move_cmd.value = "3";
     }
   }
 
@@ -352,7 +382,9 @@ void ROS_Thread()
     exit(1);
   }
 
-  ros::Subscriber sub_ball_pos = nh.subscribe("/heroehs/detected_objects", 10, VisionCallback);
+  ros::Subscriber sub_ball_pos = nh.subscribe("/heroehs/environment_detector", 10, VisionCallback);
+  ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
+
   ros::Publisher pub_move_cmd  = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
 
   diagnostic_msgs::KeyValue msg;
@@ -367,6 +399,7 @@ void ROS_Thread()
 
     msg = alice.move_cmd;
     pub_move_cmd.publish(msg);
+
     ros::spinOnce();
     usleep(10);
   }
@@ -376,14 +409,23 @@ void VisionCallback(const alice_msgs::FoundObjectArray &msg)
 {
   for(int i=0 ; i<msg.length ; i++)
   {
+    alice.ball_found = false;
     if(msg.data[i].name.compare("ball") == 0)
     {
+      alice.ball_found = true;
       ball.x = msg.data[i].pos.x;
       ball.y = msg.data[i].pos.y;
       ball.z = msg.data[i].pos.z;
       break;
     }
   }
+}
+
+void RobotPosCallback(const geometry_msgs::Vector3 &msg)
+{
+  alice.position.x = msg.x;
+  alice.position.y = msg.y;
+  alice.position.z = msg.z;
 }
 
 void RobotInit()
