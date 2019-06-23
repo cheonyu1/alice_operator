@@ -513,7 +513,7 @@ void UDP_Thread()
   //bzero(&peer_addr, sizeof(peer_addr)); // set it 0
   controller_addr.sin_family = AF_INET;
   controller_addr.sin_port = htons(GAMECONTROLLER_DATA_PORT);
-  controller_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
+  controller_addr.sin_addr.s_addr = inet_addr("0.0.0.0");//htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
   bind(sock, (sockaddr*)&controller_addr, sizeof(controller_addr));
 
   // make variable for communicate
@@ -537,6 +537,7 @@ void UDP_Thread()
       mtx.unlock();
     }
     client_addr.sin_port = htons(GAMECONTROLLER_RETURN_PORT);
+    client_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);  // set broadcast ip(0.0.0.0)
     sendto(sock, (char*)&robot_data, sizeof(robot_data), 0, (sockaddr*)&client_addr, sizeof(client_addr));
   }
   close(sock);
