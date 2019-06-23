@@ -267,8 +267,9 @@ private:
   void Move()
   {
     float dist_to_dest = sqrt(pow(destination.x-position.x, 2) + (pow(destination.y-position.y, 2)));
-    float angle_to_dest = atan2(destination.y-position.y, destination.x-position.x) * 180/PI - destination.z;
-
+    float global_angle_to_dest = atan2(destination.y-position.y, destination.x-position.x);
+    float cross = (cos(global_angle_to_dest)*sin(position.z)) - (sin(global_angle_to_dest)*cos(position.z));
+    float angle_to_dest = (cos(global_angle_to_dest)*cos(position.z)) + (sin(global_angle_to_dest)*sin(position.z)) / PI *180;
     char tmp[10];
     // if destination is not nearby.
     if( strategy != Stop && dist_to_dest > 0.2 )
@@ -277,22 +278,22 @@ private:
       if( dist_to_dest > 1 )
       {
         // go straight if destination is in front of robot. 
-        if( angle_to_dest < 30 && angle_to_dest > -30 )
+        if( angle_to_dest < 30 )
         {
           move_cmd.key = "forward";
         }
         // step back when destination is at the back. 
-        else if( angle_to_dest > 90 || angle_to_dest < -90 )
+        else if( angle_to_dest > 90 )
         {
           move_cmd.key = "backward";
         }
         // turn around to the destination, when it's at side. 
-        else if(angle_to_dest > 0)
+        else if(cross > 0)
         {
           //move_cmd.key = "turn_left";
           move_cmd.key = "centered_left";
         }
-        else if(angle_to_dest < 0)
+        else if(cross < 0)
         {
           //move_cmd.key = "turn_right";
           move_cmd.key = "centered_right";
@@ -513,7 +514,7 @@ void UDP_Thread()
   //bzero(&peer_addr, sizeof(peer_addr)); // set it 0
   controller_addr.sin_family = AF_INET;
   controller_addr.sin_port = htons(GAMECONTROLLER_DATA_PORT);
-  controller_addr.sin_addr.s_addr = inet_addr("0.0.0.0");//htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
+  controller_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // set broadcast ip(0.0.0.0)
   bind(sock, (sockaddr*)&controller_addr, sizeof(controller_addr));
 
   // make variable for communicate
