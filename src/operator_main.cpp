@@ -93,6 +93,7 @@ public:
     id = robot_data.player-1;
     map_size.x = 14;
     map_size.y = 9;
+    team_index = -1;
   }
 
   void Update()
@@ -141,13 +142,6 @@ private:
 
   void ReadControlData()
   {
-    // read control command & check packet number & get team index. 
-    if(last_packet_num != control_data.packetNumber)
-    {
-      last_packet_num = control_data.packetNumber;
-      CheckTeamIndex();
-    }
-
     // if team index is available, update local state. 
     if(team_index >= 0)
     {
@@ -182,6 +176,12 @@ private:
     }
     else
     {
+      // read control command & check packet number & get team index. 
+      if(last_packet_num != control_data.packetNumber)
+      {
+        last_packet_num = control_data.packetNumber;
+        CheckTeamIndex();
+      }
       state = Initial;
     }
   }
@@ -338,7 +338,6 @@ private:
 
   void CheckTeamIndex()
   {
-    team_index = -1;
     for(int i=0 ; i<2 ; i++)
     {
       if(control_data.teams[i].teamNumber == robot_data.team)
