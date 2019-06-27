@@ -235,7 +235,7 @@ private:
       if(team_index == 0)
         destination.z = 0;
       else
-        destination.z = 180;
+        destination.z = PI;
       break;
 
     case Attack:
@@ -286,73 +286,101 @@ private:
       << "global_angle_to_dest : " << global_angle_to_dest/PI*180 << endl
       << "cross                : " << cross << endl
       << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
+    
+    Vector3 local_dest;
+    if(cross > 0)
+    {
+      local_dest.x = cos(angle_to_dest) * dist_to_dest;
+      local_dest.y = sin(angle_to_dest) * dist_to_dest;
+    }
+    else
+    {
+      local_dest.x = cos(-angle_to_dest) * dist_to_dest;
+      local_dest.y = sin(-angle_to_dest) * dist_to_dest;
+    }
+
     // if destination is not nearby.
-    if( strategy != Stop && dist_to_dest > 0.2 )
+    if( strategy != Stop )
     {
       // do something when destination is far enough.
-      if( dist_to_dest > 1 )
+      if( dist_to_dest < 0.5 )
+      {
+        if( angle_to_dest/PI*180 >= 10 )
+        {
+          // turn around to the destination, when it's at side. 
+          if(cross > 0)
+            move_cmd.key = "turn_right_precision";
+          else
+            move_cmd.key = "turn_left_precision";
+
+          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+        }
+        else if( angle_to_dest/PI*180 < 10 )
+        {
+          if(cross > 0)
+            move_cmd.key = "centered_left_precision";
+          else
+            move_cmd.key = "centered_right_precision";
+
+          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+        }
+      }
+      else if(local_dest.y < 0.5 && local_dest.y > -0.5)
       {
         // go straight if destination is in front of robot. 
-        if( angle_to_dest < 30 / 180*PI )
+        if(local_dest.x < 0.8 && local_dest.x > -0.8)
         {
-          move_cmd.key = "forward";
+          if(local_dest.y > 0.2)
+            move_cmd.key = "right";
+          else if(local_dest.y < -0.2)
+            move_cmd.key = "left";
+          else if(local_dest.x > 0.2)
+            move_cmd.key = "forward";
+          else if(local_dest.x < -0.2)
+            move_cmd.key = "backward";
         }
-        // step back when destination is at the back. 
-        else if( angle_to_dest > 90 / 180*PI )
+        else
         {
-          move_cmd.key = "backward";
-        }
-        // turn around to the destination, when it's at side. 
-        else if(cross > 0)
-        {
-          //move_cmd.key = "turn_left";
-          move_cmd.key = "centered_right";
-        }
-        else if(cross < 0)
-        {
-          //move_cmd.key = "turn_right";
-          move_cmd.key = "centered_left";
+          if(local_dest.x > 0.2)
+            move_cmd.key = "forward";
+          else if(local_dest.x < -0.2)
+            move_cmd.key = "backward";
         }
         sprintf(tmp, "%d", speed);
-        move_cmd.value = tmp;
       }
       // do something when destination is close enough. 
       else
       {
-        if( angle_to_dest > 10 / 180*PI && cross > 0 )
+        if( angle_to_dest/PI*180 < 30 )
         {
-          move_cmd.key = "centered_right";
-          sprintf(tmp, "%d", speed);
-          //move_cmd.key = "centered_turn_left_precision";
-          //sprintf(tmp, "%.4f", angle_to_dest);
-          move_cmd.value = tmp;
-        }
-        else if( angle_to_dest > 10 / 180*PI && cross < 0 )
-        {
-          move_cmd.key = "centered_left";
-          sprintf(tmp, "%d", speed);
-          //move_cmd.key = "centered_turn_right_precision";
-          //sprintf(tmp, "%.4f", angle_to_dest);
-          move_cmd.value = tmp;
-        }
-        else if( dist_to_dest > 0.5 )
-        {
-          move_cmd.key = "forward_precision";
-          sprintf(tmp, "%.4f", dist_to_dest);
-          move_cmd.value = tmp;
+          if(cross > 0)
+            move_cmd.key = "turn_right_precision";
+            //move_cmd.key = "centered_left_precision";
+          else
+            move_cmd.key = "turn_left_precision";
+            //move_cmd.key = "centered_right_precision";
+          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
         }
         else
         {
-          move_cmd.key = "stop";
-          move_cmd.value = "3";
+          if(cross > 0)
+            move_cmd.key = "turn_right";
+            //move_cmd.key = "centered_left_precision";
+          else
+            move_cmd.key = "turn_left";
+            //move_cmd.key = "centered_right_precision";
+
+          sprintf(tmp, "%d", speed);
         }
       }
     }
     else
     {
       move_cmd.key = "stop";
-      move_cmd.value = "3";
+      sprintf(tmp, "3");
     }
+
+    move_cmd.value = tmp;
   }
 
   void CheckTeamIndex()
@@ -402,7 +430,7 @@ void ROS_Thread()
   }
   ros::Subscriber sub_gazebo = nh.subscribe("/gazebo/model_states", 10, GazeboCallback);
   ros::Subscriber sub_position = nh.subscribe("/heroehs/alice_reference_body_sum", 10, PositionCallback);
-    
+
   ros::Subscriber sub_ball_pos = nh.subscribe("/heroehs/environment_detector", 10, VisionCallback);
   ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
 
@@ -452,7 +480,7 @@ void RobotPosCallback(const geometry_msgs::Vector3 &msg)
 void RobotInit()
 {
   passwd *user = getpwuid(getuid());
-  string file_path = string(user->pw_dir) + "/catkin_ws/src/alice_operator/config/robot.cfg";
+  string file_path = string(user->pw_dir) + "/config/robot.cfg";//"/catkin_ws/src/alice_operator/config/robot.cfg";
 
   string option[] = { 
     "player_number", 
@@ -667,7 +695,7 @@ void GazeboCallback(const gazebo_msgs::ModelStates &msg)
       alice.ball_global.x = msg.pose[i].position.x;
       alice.ball_global.y = msg.pose[i].position.y;
     }
-    if(msg.name[i].compare("alice_1_robot") == 0)
+    if(msg.name[i].compare("alice_1_robot") == 0 || msg.name[i].compare("alice_2_robot") == 0)
     {
       alice.position.x = msg.pose[i].position.x;
       alice.position.y = msg.pose[i].position.y;
@@ -675,14 +703,14 @@ void GazeboCallback(const gazebo_msgs::ModelStates &msg)
       float q_y = msg.pose[i].orientation.y;
       float q_z = msg.pose[i].orientation.z;
       float q_w = msg.pose[i].orientation.w;
-      alice.position.z = atan2(2*(q_x*q_w + q_y*q_z), 1-2*(q_z*q_z + q_w*q_w)) + PI;
+      //alice.position.z = atan2(2*(q_x*q_w + q_y*q_z), 1-2*(q_z*q_z + q_w*q_w)) + PI;
     }
   }
 }
 
 void PositionCallback(const geometry_msgs::Vector3 &msg)
 {
-  //alice.position.z = msg.z;
+  alice.position.z = msg.z;
 }
 
 
