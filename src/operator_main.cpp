@@ -91,6 +91,7 @@ public:
   float angle_to_ball;
   Vector3 ball_global;
   uint8_t last_packet_num;
+  ros::Time move_timer;
 
   Alice():state(Initial), last_packet_num(0), speed(3)
   {
@@ -98,6 +99,7 @@ public:
 
   void Init()
   {
+    move_timer = ros::Time::now();
     id = robot_data.player-1;
     map_size.x = 9;//14;
     map_size.y = 6;//9;
@@ -109,6 +111,7 @@ public:
     ReadControlData();
     SetStrategy();
     SetDestination();
+
     Move();
   }
 
@@ -288,7 +291,7 @@ private:
       << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
     
     Vector3 local_dest;
-    if(cross > 0)
+    if(cross < 0)
     {
       local_dest.x = cos(angle_to_dest) * dist_to_dest;
       local_dest.y = sin(angle_to_dest) * dist_to_dest;
@@ -302,10 +305,109 @@ private:
     // if destination is not nearby.
     if( strategy != Stop )
     {
-      // do something when destination is far enough.
-      if( dist_to_dest < 0.5 )
+      // the destination is infront of me. 
+      if( local_dest.y < 0.35 && local_dest.y > -3.5 &&
+          local_dest.x < 0.4 && local_dest.x > 0.25 )
       {
-        if( angle_to_dest/PI*180 >= 10 )
+        if(angle_to_dest > 10)
+        {
+          if(cross > 0)
+            move_cmd.key = "turn_right_precision";
+          else
+            move_cmd.key = "turn_left_precision";
+
+          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+        }
+        else
+        {
+          if((destination.z - position.z)/PI*180 > 10)
+          {
+            move_cmd.key = "centered_right_precision";
+            sprintf(tmp, "%d", (int)(abs(destination.z - position.z)/PI*180));
+          }
+          else if((destination.z - position.z)/PI*180 < -10)
+          {
+            move_cmd.key = "centered_left_precision";
+            sprintf(tmp, "%d", (int)(abs(destination.z - position.z)/PI*180));
+          }
+          else
+          {
+            move_cmd.key = "stop";
+            sprintf(tmp, "3");
+          }
+        }
+      }
+      else if( dist_to_dest < 0.4 )
+      {
+        if(angle_to_dest > 10)
+        {
+          if(cross > 0)
+            move_cmd.key = "turn_right_precision";
+          else
+            move_cmd.key = "turn_left_precision";
+
+          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+        }
+      }
+      else if( dist_to_dest < 1 )
+      {
+        if(local_dest.y < 0.35 && local_dest.y > -0.35)
+        {
+          if(local_dest.y > 0.15 || local_dest.y < -0.15)
+          {
+            // turn around to the destination, when it's at side. 
+            if(cross > 0)
+              move_cmd.key = "turn_right_precision";
+            else
+              move_cmd.key = "turn_left_precision";
+
+            sprintf(tmp, "%d", (int)(angle_to_dest/PI*180/2));
+          }
+          else if(local_dest.x > 0.4)
+          {
+            move_cmd.key = "forward_precision";
+            sprintf(tmp, "%.4f", local_dest.x - 0.38);
+          }
+          else if(local_dest.x < 0.2)
+          {
+            move_cmd.key = "backward_precision";
+            sprintf(tmp, "%.4f", -(local_dest.x - 0.22));
+          }
+        }
+        else
+        {
+          // turn around to the destination, when it's at side. 
+          if(cross > 0)
+            move_cmd.key = "turn_right_precision";
+          else
+            move_cmd.key = "turn_left_precision";
+          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+        }
+      }
+      else
+      {
+        if(local_dest.y < 0.4 && local_dest.y > -0.4)
+        {
+          if(local_dest.y > 0.2 || local_dest.y < -0.2)
+          {
+            if(cross > 0)
+              move_cmd.key = "turn_right_precision";
+            else
+              move_cmd.key = "turn_left_precision";
+            sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+          }
+          else if(local_dest.x > 0)
+          {
+            move_cmd.key = "forward";
+            sprintf(tmp, "%d", speed);
+          }
+          else if(local_dest.x < 0)
+          {
+            move_cmd.key = "backward";
+            sprintf(tmp, "%d", speed);
+          }
+        }
+        else
         {
           // turn around to the destination, when it's at side. 
           if(cross > 0)
@@ -314,63 +416,6 @@ private:
             move_cmd.key = "turn_left_precision";
 
           sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
-        }
-        else if( angle_to_dest/PI*180 < 10 )
-        {
-          if(cross > 0)
-            move_cmd.key = "centered_left_precision";
-          else
-            move_cmd.key = "centered_right_precision";
-
-          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
-        }
-      }
-      else if(local_dest.y < 0.5 && local_dest.y > -0.5)
-      {
-        // go straight if destination is in front of robot. 
-        if(local_dest.x < 0.8 && local_dest.x > -0.8)
-        {
-          if(local_dest.y > 0.2)
-            move_cmd.key = "right";
-          else if(local_dest.y < -0.2)
-            move_cmd.key = "left";
-          else if(local_dest.x > 0.2)
-            move_cmd.key = "forward";
-          else if(local_dest.x < -0.2)
-            move_cmd.key = "backward";
-        }
-        else
-        {
-          if(local_dest.x > 0.2)
-            move_cmd.key = "forward";
-          else if(local_dest.x < -0.2)
-            move_cmd.key = "backward";
-        }
-        sprintf(tmp, "%d", speed);
-      }
-      // do something when destination is close enough. 
-      else
-      {
-        if( angle_to_dest/PI*180 < 30 )
-        {
-          if(cross > 0)
-            move_cmd.key = "turn_right_precision";
-            //move_cmd.key = "centered_left_precision";
-          else
-            move_cmd.key = "turn_left_precision";
-            //move_cmd.key = "centered_right_precision";
-          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
-        }
-        else
-        {
-          if(cross > 0)
-            move_cmd.key = "turn_right";
-            //move_cmd.key = "centered_left_precision";
-          else
-            move_cmd.key = "turn_left";
-            //move_cmd.key = "centered_right_precision";
-
-          sprintf(tmp, "%d", speed);
         }
       }
     }
@@ -450,7 +495,7 @@ void ROS_Thread()
     pub_move_cmd.publish(msg);
 
     ros::spinOnce();
-    usleep(200000);
+    usleep(400000);
   }
 }
 
@@ -579,12 +624,12 @@ void UDP_Thread()
   {
     client_addr_len = sizeof(client_addr);
     recv_len = recvfrom(sock, (char*)&control_data, sizeof(control_data), 0, (sockaddr*)&client_addr, &client_addr_len);
-    if(recv_len > 0)
-    {
-      mtx.lock();
-      PrintControlData(control_data);
-      mtx.unlock();
-    }
+    //    if(recv_len > 0)
+    //    {
+    //      mtx.lock();
+    //      PrintControlData(control_data);
+    //      mtx.unlock();
+    //    }
     client_addr.sin_port = htons(GAMECONTROLLER_RETURN_PORT);
     client_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);  // set broadcast ip(0.0.0.0)
     sendto(sock, (char*)&robot_data, sizeof(robot_data), 0, (sockaddr*)&client_addr, sizeof(client_addr));
