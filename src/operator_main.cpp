@@ -88,6 +88,7 @@ public:
   int speed;
 
   int team_index;
+  int penalty;
 
   bool ball_found;
   float dist_to_ball;
@@ -96,7 +97,7 @@ public:
   uint8_t last_packet_num;
   ros::Time move_timer;
 
-  Alice():state(Initial), last_packet_num(0), speed(2)
+  Alice():state(Initial), last_packet_num(0), penalty(0), speed(2)
   {
   };
 
@@ -159,6 +160,7 @@ private:
     // if team index is available, update local state. 
     if(team_index >= 0)
     {
+      penalty = (int)control_data.teams[team_index].players[id].penalty;
       if(control_data.teams[team_index].players[id].penalty == PENALTY_NONE)
       {
         switch(control_data.state)
@@ -343,7 +345,7 @@ private:
           move_cmd.key = "centered_left_precision";
         else
         {
-          move_cmd.key = "kick";
+          move_cmd.key = "stop";
           sprintf(tmp, "3");
         }
       }
@@ -390,6 +392,31 @@ private:
     }
 
     move_cmd.value = tmp;
+  }
+
+  void Dribble()
+  {
+//    if( strategy != Stop )
+//    {
+//      // the destination is infront of me. 
+//      if( abs(local_dest.y) < 0.3 &&
+//          abs(local_dest.x) < 0.3 )
+//      {
+//        float goal_angle = (destination.z-PI) - (position.z-PI);
+//
+//        sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
+//
+//        if(goal_angle/PI*180 > 10)
+//          move_cmd.key = "centered_right_precision";
+//        else if(goal_angle/PI*180 < -10)
+//          move_cmd.key = "centered_left_precision";
+//        else
+//        {
+//          move_cmd.key = "stop";
+//          sprintf(tmp, "3");
+//        }
+//      }
+//    }
   }
 
   void CheckTeamIndex()
@@ -447,6 +474,7 @@ void ROS_Thread()
   ros::Publisher pub_move_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
   ros::Publisher pub_game_state  = nh.advertise<std_msgs::UInt8>("/game_controller/state", 10);
   ros::Publisher pub_team_index  = nh.advertise<std_msgs::UInt8>("/game_controller/team_index", 10);
+  ros::Publisher pub_penalty     = nh.advertise<std_msgs::UInt8>("/heroehs/alice/penalty", 10);
   ros::Publisher pub_destination = nh.advertise<geometry_msgs::Vector3>("/heroehs/alice/global_destination", 10);
 
   alice.Init();
@@ -462,6 +490,10 @@ void ROS_Thread()
     std_msgs::UInt8 game_state_msg;
     game_state_msg.data = (uint8_t)control_data.state;
     pub_game_state.publish(game_state_msg);
+
+    std_msgs::UInt8 penalty_msg;
+    penalty_msg.data = (uint8_t)control_data.state;
+    pub_penalty.publish(penalty_msg);
 
     std_msgs::UInt8 team_index_msg;
     if(alice.team_index != -1)
