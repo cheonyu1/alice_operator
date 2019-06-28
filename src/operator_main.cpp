@@ -16,7 +16,7 @@
 #include <std_msgs/UInt8.h>
 
 // for simulating
-#include <gazebo_msgs/ModelStates.h>
+//#include <gazebo_msgs/ModelStates.h>
 // topic name = /gazebo/model_states
 // name[], pos[], 
 
@@ -45,15 +45,13 @@ void VisionCallback(const alice_msgs::FoundObjectArray &msg);
 void RobotPosCallback(const geometry_msgs::Pose2D &msg);
 //void RobotPosCallback(const geometry_msgs::Vector3 &msg);
 
-void GazeboCallback(const gazebo_msgs::ModelStates &msg);
+//void GazeboCallback(const gazebo_msgs::ModelStates &msg);
 void PositionCallback(const geometry_msgs::Vector3 &msg);
 
 struct RoboCupGameControlData control_data; // buffer
 struct RoboCupGameControlReturnData robot_data;
 
 mutex mtx;
-
-Vector3 ball;
 
 class Alice
 {
@@ -76,11 +74,19 @@ public:
   };
 
   int id;
+  int penalty;
   Vector3 map_size;
   Vector3 set_point;
   Vector3 shot_point;
-  Vector3 position;
-  Vector3 destination;
+
+  Vector3 pos_global;
+
+  Vector3 dest_local;
+  Vector3 dest_global;
+
+  float dist_to_dest;
+  float angle_to_dest;
+  float angle_to_dest_global;
 
   State state;
   Strategy strategy;
@@ -88,16 +94,18 @@ public:
   int speed;
 
   int team_index;
-  int penalty;
 
   bool ball_found;
+  Vector3 ball_local;
+  Vector3 ball_global;
   float dist_to_ball;
   float angle_to_ball;
-  Vector3 ball_global;
+  float cross;
+
   uint8_t last_packet_num;
   ros::Time move_timer;
 
-  Alice():state(Initial), last_packet_num(0), penalty(0), speed(2)
+  Alice():state(Initial), penalty(0), last_packet_num(0), speed(2)
   {
   };
 
@@ -227,48 +235,73 @@ private:
 
   void SetDestination()
   {
+    dist_to_dest = sqrt(pow(dest_global.x-pos_global.x, 2) + (pow(dest_global.y-pos_global.y, 2)));
+    angle_to_dest_global = atan2(dest_global.y-pos_global.y, dest_global.x-pos_global.x);
+    angle_to_dest = acosf((cos(angle_to_dest_global)*cos(pos_global.z)) + (sin(angle_to_dest_global)*sin(pos_global.z)));
+    cross = (cos(angle_to_dest_global)*sin(pos_global.z)) - (sin(angle_to_dest_global)*cos(pos_global.z));
+
+    cout
+      << "position    : " << pos_global.x << ", " << pos_global.y << endl
+      << "alice angle : " << pos_global.z/PI*180 << endl
+      << "destination : " << dest_global.x << ", " << dest_global.y << endl
+      << "dist_to_dest         : " << dist_to_dest << endl
+      << "global_angle_to_dest : " << angle_to_dest_global/PI*180 << endl
+      << "cross                : " << cross << endl
+      << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
+
+    if(cross < 0)
+    {
+      dest_local.x = cos(angle_to_dest) * dist_to_dest;
+      dest_local.y = sin(angle_to_dest) * dist_to_dest;
+    }
+    else
+    {
+      dest_local.x = cos(-angle_to_dest) * dist_to_dest;
+      dest_local.y = sin(-angle_to_dest) * dist_to_dest;
+    }
+
     switch(strategy)
     {
     case Stop:
-      destination = position;
+      dest_global = pos_global;
       break;
 
     case GoToSetPosition:
       UpdatePoints();
-      destination = set_point;
+      dest_global = set_point;
       break;
 
     case GoalKeep:
-      destination = position;
+      dest_global = pos_global;
       if(team_index == 0)
-        destination.z = 0;
+        dest_global.z = 0;
       else
-        destination.z = PI;
+        dest_global.z = PI;
       break;
 
     case Attack:
       UpdateBall();
       cout
-        << "local ball pos : " << ball.x << ", " << ball.y << endl;
-      if( abs(ball.y) < 0.2 && 
-          ball.x < 0.6 && 
-          ball.x > 0 && 
-          abs((destination.z-position.z)/PI*180) < 10 )// && 
+        << "local ball pos : " << ball_local.x << ", " << ball_local.y << endl;
+      if( abs(ball_local.y) < 0.2 && 
+          ball_local.x < 0.6 && 
+          ball_local.x > 0 && 
+          abs((dest_global.z-pos_global.z)/PI*180) < 10 )// && 
         //((destination.z-PI) - (position.z-PI))/PI*180 < 10 && 
         //dist_to_ball < 0.8 )
       {
         cout << "?????????????????????????????????????????????????????" << endl;
-        destination = shot_point;
+        dest_global = shot_point;
       }
       else
       {
-        destination = ball_global;
+        dest_global = ball_global;
         speed = 1;
       }
       break;
 
     default:
-      destination = position;
+      dest_global = pos_global;
       break;
     }
   }
@@ -278,64 +311,29 @@ private:
     //ball_found = true;
     if(ball_found)
     {
-      ball_global.x = position.x + (cos(position.z)*ball.x) - (sin(position.z)*ball.y);
-      ball_global.y = position.y + (sin(position.z)*ball.x) + (cos(position.z)*ball.y);
+      ball_global.x = pos_global.x + (cos(pos_global.z)*ball_local.x) - (sin(pos_global.z)*ball_local.y);
+      ball_global.y = pos_global.y + (sin(pos_global.z)*ball_local.x) + (cos(pos_global.z)*ball_local.y);
     }
 
-    dist_to_ball = sqrt(pow(ball_global.x - position.x, 2) + (pow(ball_global.y - position.y, 2)));
-    angle_to_ball = atan2(ball_global.y - position.y, ball_global.x - position.x);
+    dist_to_ball = sqrt(pow(ball_local.x, 2) + pow(ball_local.y, 2));
+    angle_to_ball = atan2(ball_local.y, ball_local.x);
 
-//    float global_angle_to_dest = atan2(destination.y-position.y, destination.x-position.x);
-//    float cross = (cos(global_angle_to_dest)*sin(position.z)) - (sin(global_angle_to_dest)*cos(position.z));
-//    float global_angle_to_ball = acosf((cos(global_angle_to_dest)*cos(position.z)) + (sin(global_angle_to_dest)*sin(position.z)));
-//    if(cross < 0)
-//    {
-//      ball.x = cos(global_angle_to_ball) * dist_to_ball;
-//      ball.y = sin(global_angle_to_ball) * dist_to_ball;
-//    }
-//    else
-//    {
-//      ball.x = cos(-global_angle_to_ball) * dist_to_ball;
-//      ball.y = sin(-global_angle_to_ball) * dist_to_ball;
-//    }
+    ball_local.x = cos(angle_to_ball) * dist_to_ball;
+    ball_local.y = sin(angle_to_ball) * dist_to_ball;
   }
 
   void Move()
   {
-    float dist_to_dest = sqrt(pow(destination.x-position.x, 2) + (pow(destination.y-position.y, 2)));
-    float global_angle_to_dest = atan2(destination.y-position.y, destination.x-position.x);
-    float cross = (cos(global_angle_to_dest)*sin(position.z)) - (sin(global_angle_to_dest)*cos(position.z));
-    float angle_to_dest = acosf((cos(global_angle_to_dest)*cos(position.z)) + (sin(global_angle_to_dest)*sin(position.z)));
     char tmp[10];
-    cout
-      << "position    : " << position.x << ", " << position.y << endl
-      << "alice angle : " << position.z/PI*180 << endl
-      << "destination : " << destination.x << ", " << destination.y << endl
-      << "dist_to_dest         : " << dist_to_dest << endl
-      << "global_angle_to_dest : " << global_angle_to_dest/PI*180 << endl
-      << "cross                : " << cross << endl
-      << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
-
-    Vector3 local_dest;
-    if(cross < 0)
-    {
-      local_dest.x = cos(angle_to_dest) * dist_to_dest;
-      local_dest.y = sin(angle_to_dest) * dist_to_dest;
-    }
-    else
-    {
-      local_dest.x = cos(-angle_to_dest) * dist_to_dest;
-      local_dest.y = sin(-angle_to_dest) * dist_to_dest;
-    }
 
     // if destination is not nearby.
     if( strategy != Stop )
     {
       // the destination is infront of me. 
-      if( abs(local_dest.y) < 0.3 &&
-          abs(local_dest.x) < 0.3 )
+      if( abs(dest_local.y) < 0.3 &&
+          abs(dest_local.x) < 0.3 )
       {
-        float goal_angle = (destination.z-PI) - (position.z-PI);
+        float goal_angle = (dest_global.z-PI) - (pos_global.z-PI);
 
         sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
 
@@ -349,17 +347,17 @@ private:
           sprintf(tmp, "3");
         }
       }
-      else if(abs(local_dest.y) < 0.25)
+      else if(abs(dest_local.y) < 0.25)
       {
-        if(local_dest.x > 0)
+        if(dest_local.x > 0)
         {
           move_cmd.key = "forward_precision";
-          sprintf(tmp, "%.4f", abs(local_dest.x));
+          sprintf(tmp, "%.4f", abs(dest_local.x));
         }
         else// if(local_dest.x < 0.2)
         {
           move_cmd.key = "backward_precision";
-          sprintf(tmp, "%.4f", abs(local_dest.x));
+          sprintf(tmp, "%.4f", abs(dest_local.x));
         }
       }
       else
@@ -373,7 +371,7 @@ private:
 
           sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
         }
-        else if(local_dest.x > 0)
+        else if(dest_local.x > 0)
         {
           move_cmd.key = "forward";
           sprintf(tmp, "%d", speed);
@@ -464,11 +462,11 @@ void ROS_Thread()
     cout << "Wrong robot id. " << endl;
     exit(1);
   }
-  //ros::Subscriber sub_gazebo = nh.subscribe("/gazebo/model_states", 10, GazeboCallback);
-  //ros::Subscriber sub_position = nh.subscribe("/heroehs/alice_reference_body_sum", 10, PositionCallback);
+//  ros::Subscriber sub_gazebo = nh.subscribe("/gazebo/model_states", 10, GazeboCallback);
+//  ros::Subscriber sub_position = nh.subscribe("/heroehs/alice_reference_body_sum", 10, PositionCallback);
 
   ros::Subscriber sub_obj_pos = nh.subscribe("/heroehs/environment_detector", 10, VisionCallback);
-  //ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
+//  ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
   ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/global_position", 10, RobotPosCallback);  // geometry_msgs::Pose2D
 
   ros::Publisher pub_move_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
@@ -485,14 +483,12 @@ void ROS_Thread()
     alice.Update();
     mtx.unlock();
 
-    pub_move_cmd.publish(alice.move_cmd);
-
     std_msgs::UInt8 game_state_msg;
     game_state_msg.data = (uint8_t)control_data.state;
     pub_game_state.publish(game_state_msg);
 
-    std_msgs::UInt8 penalty_msg;
-    penalty_msg.data = (uint8_t)control_data.state;
+    std_msgs::UInt8 penalty_msg;                                                                     
+    penalty_msg.data = (uint8_t)alice.penalty;                                                  
     pub_penalty.publish(penalty_msg);
 
     std_msgs::UInt8 team_index_msg;
@@ -502,17 +498,19 @@ void ROS_Thread()
       pub_team_index.publish(team_index_msg);
     }
 
-    geometry_msgs::Vector3 destination_msg;
+    geometry_msgs::Vector3 dest_global_msg;
     if(control_data.state == STATE_READY)
     {
-      destination_msg.x = alice.destination.x;
-      destination_msg.y = alice.destination.y;
-      destination_msg.z = alice.destination.z;
-      pub_destination.publish(destination_msg);
+      dest_global_msg.x = alice.dest_global.x;
+      dest_global_msg.y = alice.dest_global.y;
+      dest_global_msg.z = alice.dest_global.z;
+      pub_destination.publish(dest_global_msg);
     }
 
+    pub_move_cmd.publish(alice.move_cmd);
+
     ros::spinOnce();
-    usleep(100000);
+    usleep(10000);
   }
 }
 
@@ -526,9 +524,9 @@ void VisionCallback(const alice_msgs::FoundObjectArray &msg)
     if(msg.data[i].name.compare("ball") == 0)
     {
       alice.ball_found = true;
-      ball.x = msg.data[i].pos.x;
-      ball.y = msg.data[i].pos.y;
-      ball.z = msg.data[i].pos.z;
+      alice.ball_local.x = msg.data[i].pos.x;
+      alice.ball_local.y = msg.data[i].pos.y;
+      alice.ball_local.z = msg.data[i].pos.z;
       break;
     }
   }
@@ -537,10 +535,10 @@ void VisionCallback(const alice_msgs::FoundObjectArray &msg)
 void RobotPosCallback(const geometry_msgs::Pose2D &msg)
 //void RobotPosCallback(const geometry_msgs::Vector3 &msg)
 {
-  alice.position.x = msg.x;
-  alice.position.y = msg.y;
-  //alice.position.z = msg.z;
-  alice.position.z = msg.theta;
+  alice.pos_global.x = msg.x;
+  alice.pos_global.y = msg.y;
+  //alice.pos_global.z = msg.z;
+  alice.pos_global.z = msg.theta;
 }
 
 void RobotInit()
@@ -752,32 +750,32 @@ void PrintRobotInfo(RobotInfo &player)
 }
 
 
-void GazeboCallback(const gazebo_msgs::ModelStates &msg)
-{
-  for(int i=0 ; i<msg.name.size() ; i++)
-  {
-    if(msg.name[i].compare("soccer_ball_0_0") == 0)
-    {
-      alice.ball_global.x = msg.pose[i].position.x;
-      alice.ball_global.y = msg.pose[i].position.y;
-    }
-    if(msg.name[i].compare("alice_1_robot") == 0 || msg.name[i].compare("alice_2_robot") == 0)
-    {
-      alice.position.x = msg.pose[i].position.x;
-      alice.position.y = msg.pose[i].position.y;
-      float q_x = msg.pose[i].orientation.x;
-      float q_y = msg.pose[i].orientation.y;
-      float q_z = msg.pose[i].orientation.z;
-      float q_w = msg.pose[i].orientation.w;
-      //alice.position.z = atan2(2*(q_x*q_w + q_y*q_z), 1-2*(q_z*q_z + q_w*q_w)) + PI;
-      //cout << "alice pos z : " << alice.position.z/PI*180 <<endl;
-    }
-  }
-}
-
-void PositionCallback(const geometry_msgs::Vector3 &msg)
-{
-  alice.position.z = msg.z;
-}
+//void GazeboCallback(const gazebo_msgs::ModelStates &msg)
+//{
+//  for(int i=0 ; i<msg.name.size() ; i++)
+//  {
+//    if(msg.name[i].compare("soccer_ball_0_0") == 0)
+//    {
+//      alice.ball_global.x = msg.pose[i].position.x;
+//      alice.ball_global.y = msg.pose[i].position.y;
+//    }
+//    if(msg.name[i].compare("alice_1_robot") == 0 || msg.name[i].compare("alice_2_robot") == 0)
+//    {
+//      alice.position.x = msg.pose[i].position.x;
+//      alice.position.y = msg.pose[i].position.y;
+//      float q_x = msg.pose[i].orientation.x;
+//      float q_y = msg.pose[i].orientation.y;
+//      float q_z = msg.pose[i].orientation.z;
+//      float q_w = msg.pose[i].orientation.w;
+//      //alice.position.z = atan2(2*(q_x*q_w + q_y*q_z), 1-2*(q_z*q_z + q_w*q_w)) + PI;
+//      //cout << "alice pos z : " << alice.position.z/PI*180 <<endl;
+//    }
+//  }
+//}
+//
+//void PositionCallback(const geometry_msgs::Vector3 &msg)
+//{
+//  alice.position.z = msg.z;
+//}
 
 
