@@ -12,6 +12,8 @@
 #include <diagnostic_msgs/KeyValue.h>
 #include <alice_msgs/FoundObjectArray.h>
 #include <geometry_msgs/Vector3.h>
+#include <geometry_msgs/Pose2D.h>
+#include <std_msgs/UInt8.h>
 
 // for simulating
 #include <gazebo_msgs/ModelStates.h>
@@ -40,6 +42,7 @@ void PrintRobotInfo(RobotInfo &player);
 void PrintTeamInfo(TeamInfo &team, int num);
 void PrintControlData(RoboCupGameControlData &control_data);
 void VisionCallback(const alice_msgs::FoundObjectArray &msg);
+//void RobotPosCallback(const geometry_msgs::Pose2D &msg);
 void RobotPosCallback(const geometry_msgs::Vector3 &msg);
 
 void GazeboCallback(const gazebo_msgs::ModelStates &msg);
@@ -93,7 +96,7 @@ public:
   uint8_t last_packet_num;
   ros::Time move_timer;
 
-  Alice():state(Initial), last_packet_num(0), speed(3)
+  Alice():state(Initial), last_packet_num(0), speed(2)
   {
   };
 
@@ -243,16 +246,22 @@ private:
 
     case Attack:
       UpdateBall();
-      if( dist_to_ball  < 0.8 && 
-          angle_to_ball < 10/180*PI && 
-          angle_to_ball > -10/180*PI )
+      cout
+        << "local ball pos : " << ball.x << ", " << ball.y << endl;
+      if( abs(ball.y) < 0.2 && 
+          ball.x < 0.6 && 
+          ball.x > 0 && 
+          abs((destination.z-position.z)/PI*180) < 10 )// && 
+        //((destination.z-PI) - (position.z-PI))/PI*180 < 10 && 
+        //dist_to_ball < 0.8 )
       {
+        cout << "?????????????????????????????????????????????????????" << endl;
         destination = shot_point;
       }
       else
       {
         destination = ball_global;
-        speed = 3;
+        speed = 1;
       }
       break;
 
@@ -270,8 +279,23 @@ private:
       ball_global.x = position.x + (cos(position.z)*ball.x) - (sin(position.z)*ball.y);
       ball_global.y = position.y + (sin(position.z)*ball.x) + (cos(position.z)*ball.y);
     }
+
     dist_to_ball = sqrt(pow(ball_global.x - position.x, 2) + (pow(ball_global.y - position.y, 2)));
     angle_to_ball = atan2(ball_global.y - position.y, ball_global.x - position.x);
+
+    float global_angle_to_dest = atan2(destination.y-position.y, destination.x-position.x);
+    float cross = (cos(global_angle_to_dest)*sin(position.z)) - (sin(global_angle_to_dest)*cos(position.z));
+    float global_angle_to_ball = acosf((cos(global_angle_to_dest)*cos(position.z)) + (sin(global_angle_to_dest)*sin(position.z)));
+    if(cross < 0)
+    {
+      ball.x = cos(global_angle_to_ball) * dist_to_ball;
+      ball.y = sin(global_angle_to_ball) * dist_to_ball;
+    }
+    else
+    {
+      ball.x = cos(-global_angle_to_ball) * dist_to_ball;
+      ball.y = sin(-global_angle_to_ball) * dist_to_ball;
+    }
   }
 
   void Move()
@@ -289,7 +313,7 @@ private:
       << "global_angle_to_dest : " << global_angle_to_dest/PI*180 << endl
       << "cross                : " << cross << endl
       << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
-    
+
     Vector3 local_dest;
     if(cross < 0)
     {
@@ -306,116 +330,56 @@ private:
     if( strategy != Stop )
     {
       // the destination is infront of me. 
-      if( local_dest.y < 0.35 && local_dest.y > -3.5 &&
-          local_dest.x < 0.4 && local_dest.x > 0.25 )
+      if( abs(local_dest.y) < 0.3 &&
+          abs(local_dest.x) < 0.3 )
       {
-        if(angle_to_dest > 10)
-        {
-          if(cross > 0)
-            move_cmd.key = "turn_right_precision";
-          else
-            move_cmd.key = "turn_left_precision";
+        float goal_angle = (destination.z-PI) - (position.z-PI);
 
-          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
-        }
+        sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
+
+        if(goal_angle/PI*180 > 10)
+          move_cmd.key = "centered_right_precision";
+        else if(goal_angle/PI*180 < -10)
+          move_cmd.key = "centered_left_precision";
         else
         {
-          if((destination.z - position.z)/PI*180 > 10)
-          {
-            move_cmd.key = "centered_right_precision";
-            sprintf(tmp, "%d", (int)(abs(destination.z - position.z)/PI*180));
-          }
-          else if((destination.z - position.z)/PI*180 < -10)
-          {
-            move_cmd.key = "centered_left_precision";
-            sprintf(tmp, "%d", (int)(abs(destination.z - position.z)/PI*180));
-          }
-          else
-          {
-            move_cmd.key = "stop";
-            sprintf(tmp, "3");
-          }
+          move_cmd.key = "kick";
+          sprintf(tmp, "3");
         }
       }
-      else if( dist_to_dest < 0.4 )
+      else if(abs(local_dest.y) < 0.25)
       {
-        if(angle_to_dest > 10)
+        if(local_dest.x > 0)
         {
-          if(cross > 0)
-            move_cmd.key = "turn_right_precision";
-          else
-            move_cmd.key = "turn_left_precision";
-
-          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+          move_cmd.key = "forward_precision";
+          sprintf(tmp, "%.4f", abs(local_dest.x));
         }
-      }
-      else if( dist_to_dest < 1 )
-      {
-        if(local_dest.y < 0.35 && local_dest.y > -0.35)
+        else// if(local_dest.x < 0.2)
         {
-          if(local_dest.y > 0.15 || local_dest.y < -0.15)
-          {
-            // turn around to the destination, when it's at side. 
-            if(cross > 0)
-              move_cmd.key = "turn_right_precision";
-            else
-              move_cmd.key = "turn_left_precision";
-
-            sprintf(tmp, "%d", (int)(angle_to_dest/PI*180/2));
-          }
-          else if(local_dest.x > 0.4)
-          {
-            move_cmd.key = "forward_precision";
-            sprintf(tmp, "%.4f", local_dest.x - 0.38);
-          }
-          else if(local_dest.x < 0.2)
-          {
-            move_cmd.key = "backward_precision";
-            sprintf(tmp, "%.4f", -(local_dest.x - 0.22));
-          }
-        }
-        else
-        {
-          // turn around to the destination, when it's at side. 
-          if(cross > 0)
-            move_cmd.key = "turn_right_precision";
-          else
-            move_cmd.key = "turn_left_precision";
-          sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+          move_cmd.key = "backward_precision";
+          sprintf(tmp, "%.4f", abs(local_dest.x));
         }
       }
       else
       {
-        if(local_dest.y < 0.4 && local_dest.y > -0.4)
+        if(abs(angle_to_dest/PI*180) > 15 || abs(angle_to_dest/PI*180) < 180-15)
         {
-          if(local_dest.y > 0.2 || local_dest.y < -0.2)
-          {
-            if(cross > 0)
-              move_cmd.key = "turn_right_precision";
-            else
-              move_cmd.key = "turn_left_precision";
-            sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
-          }
-          else if(local_dest.x > 0)
-          {
-            move_cmd.key = "forward";
-            sprintf(tmp, "%d", speed);
-          }
-          else if(local_dest.x < 0)
-          {
-            move_cmd.key = "backward";
-            sprintf(tmp, "%d", speed);
-          }
-        }
-        else
-        {
-          // turn around to the destination, when it's at side. 
           if(cross > 0)
             move_cmd.key = "turn_right_precision";
           else
             move_cmd.key = "turn_left_precision";
 
           sprintf(tmp, "%d", (int)(angle_to_dest/PI*180));
+        }
+        else if(local_dest.x > 0)
+        {
+          move_cmd.key = "forward";
+          sprintf(tmp, "%d", speed);
+        }
+        else// if(local_dest.x < 0)
+        {
+          move_cmd.key = "backward";
+          sprintf(tmp, "%d", speed);
         }
       }
     }
@@ -476,12 +440,14 @@ void ROS_Thread()
   ros::Subscriber sub_gazebo = nh.subscribe("/gazebo/model_states", 10, GazeboCallback);
   ros::Subscriber sub_position = nh.subscribe("/heroehs/alice_reference_body_sum", 10, PositionCallback);
 
-  ros::Subscriber sub_ball_pos = nh.subscribe("/heroehs/environment_detector", 10, VisionCallback);
+  ros::Subscriber sub_obj_pos = nh.subscribe("/heroehs/environment_detector", 10, VisionCallback);
   ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
+  //ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/global_position", 10, RobotPosCallback);  // geometry_msgs::Pose2D
 
-  ros::Publisher pub_move_cmd  = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
-
-  diagnostic_msgs::KeyValue msg;
+  ros::Publisher pub_move_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
+  ros::Publisher pub_game_state  = nh.advertise<std_msgs::UInt8>("/game_controller/state", 10);
+  ros::Publisher pub_team_index  = nh.advertise<std_msgs::UInt8>("/game_controller/team_index", 10);
+  ros::Publisher pub_destination = nh.advertise<geometry_msgs::Vector3>("/heroehs/alice/global_destination", 10);
 
   alice.Init();
 
@@ -491,13 +457,34 @@ void ROS_Thread()
     alice.Update();
     mtx.unlock();
 
-    msg = alice.move_cmd;
-    pub_move_cmd.publish(msg);
+    pub_move_cmd.publish(alice.move_cmd);
+
+    std_msgs::UInt8 game_state_msg;
+    game_state_msg.data = (uint8_t)control_data.state;
+    pub_game_state.publish(game_state_msg);
+
+    std_msgs::UInt8 team_index_msg;
+    if(alice.team_index != -1)
+    {
+      team_index_msg.data = alice.team_index;
+      pub_team_index.publish(team_index_msg);
+    }
+
+    geometry_msgs::Vector3 destination_msg;
+    if(control_data.state == STATE_READY)
+    {
+      destination_msg.x = alice.destination.x;
+      destination_msg.y = alice.destination.y;
+      destination_msg.z = alice.destination.z;
+      pub_destination.publish(destination_msg);
+    }
 
     ros::spinOnce();
-    usleep(400000);
+    usleep(100000);
   }
 }
+
+
 
 void VisionCallback(const alice_msgs::FoundObjectArray &msg)
 {
@@ -515,11 +502,13 @@ void VisionCallback(const alice_msgs::FoundObjectArray &msg)
   }
 }
 
+//void RobotPosCallback(const geometry_msgs::Pose2D &msg)
 void RobotPosCallback(const geometry_msgs::Vector3 &msg)
 {
   alice.position.x = msg.x;
   alice.position.y = msg.y;
   alice.position.z = msg.z;
+  //alice.position.z = msg.theta;
 }
 
 void RobotInit()
@@ -749,6 +738,7 @@ void GazeboCallback(const gazebo_msgs::ModelStates &msg)
       float q_z = msg.pose[i].orientation.z;
       float q_w = msg.pose[i].orientation.w;
       //alice.position.z = atan2(2*(q_x*q_w + q_y*q_z), 1-2*(q_z*q_z + q_w*q_w)) + PI;
+      //cout << "alice pos z : " << alice.position.z/PI*180 <<endl;
     }
   }
 }
