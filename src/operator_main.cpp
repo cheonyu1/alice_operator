@@ -95,6 +95,7 @@ public:
 
   int team_index;
 
+  bool got_ball;
   bool ball_found;
   Vector3 ball_local;
   Vector3 ball_global;
@@ -316,6 +317,56 @@ private:
     //ball_local.y = sin(angle_to_ball) * dist_to_ball;
   }
 
+  void MoveToBall()
+  {
+    got_ball = false;
+    char tmp[10];
+
+    // if destination is not nearby.
+    if( strategy != Stop )
+    {
+      // the destination is infront of me. 
+      if( abs(ball_local.y) < 0.2 && 
+          ball_local.x > 0 && 
+          dist_to_ball < 0.45 )
+      {
+        got_ball = true;
+        move_cmd.key = "stop";
+        sprintf(tmp, "%d", speed);
+//        else
+//        {
+//          move_cmd.key = "stop";
+//          sprintf(tmp, "2");
+//        }
+      }
+      else if(abs(angle_to_ball/PI*180) > 10)
+      {
+        sprintf(tmp, "%.4f", abs(angle_to_ball*0.8));
+        if(angle_to_ball/PI*180 > 10)
+          move_cmd.key = "turn_left_precision";
+        else //if(angle_to_ball/PI*180 < -10)
+          move_cmd.key = "turn_right_precision";
+      }
+      else if(dist_to_ball < 2)
+      {
+        move_cmd.key = "forward_precision";
+        sprintf(tmp, "%.4f", abs(ball_local.x));
+      }
+      else
+      {
+        move_cmd.key = "forward";
+        sprintf(tmp, "%d", speed);
+      }
+    }
+    else
+    {
+      move_cmd.key = "stop";
+      sprintf(tmp, "3");
+    }
+
+    move_cmd.value = tmp;
+  }
+
   void Move()
   {
     char tmp[10];
@@ -388,27 +439,27 @@ private:
 
   void Dribble()
   {
-//    if( strategy != Stop )
-//    {
-//      // the destination is infront of me. 
-//      if( abs(local_dest.y) < 0.3 &&
-//          abs(local_dest.x) < 0.3 )
-//      {
-//        float goal_angle = (destination.z-PI) - (position.z-PI);
-//
-//        sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
-//
-//        if(goal_angle/PI*180 > 10)
-//          move_cmd.key = "centered_right_precision";
-//        else if(goal_angle/PI*180 < -10)
-//          move_cmd.key = "centered_left_precision";
-//        else
-//        {
-//          move_cmd.key = "stop";
-//          sprintf(tmp, "3");
-//        }
-//      }
-//    }
+    //    if( strategy != Stop )
+    //    {
+    //      // the destination is infront of me. 
+    //      if( abs(local_dest.y) < 0.3 &&
+    //          abs(local_dest.x) < 0.3 )
+    //      {
+    //        float goal_angle = (destination.z-PI) - (position.z-PI);
+    //
+    //        sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
+    //
+    //        if(goal_angle/PI*180 > 10)
+    //          move_cmd.key = "centered_right_precision";
+    //        else if(goal_angle/PI*180 < -10)
+    //          move_cmd.key = "centered_left_precision";
+    //        else
+    //        {
+    //          move_cmd.key = "stop";
+    //          sprintf(tmp, "3");
+    //        }
+    //      }
+    //    }
   }
 
   void CheckTeamIndex()
@@ -456,11 +507,11 @@ void ROS_Thread()
     cout << "Wrong robot id. " << endl;
     exit(1);
   }
-//  ros::Subscriber sub_gazebo = nh.subscribe("/gazebo/model_states", 10, GazeboCallback);
-//  ros::Subscriber sub_position = nh.subscribe("/heroehs/alice_reference_body_sum", 10, PositionCallback);
+  //  ros::Subscriber sub_gazebo = nh.subscribe("/gazebo/model_states", 10, GazeboCallback);
+  //  ros::Subscriber sub_position = nh.subscribe("/heroehs/alice_reference_body_sum", 10, PositionCallback);
 
   ros::Subscriber sub_obj_pos = nh.subscribe("/heroehs/environment_detector", 10, VisionCallback);
-//  ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
+  //  ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
   ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/global_position", 10, RobotPosCallback);  // geometry_msgs::Pose2D
 
   ros::Publisher pub_move_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
@@ -527,13 +578,13 @@ void VisionCallback(const alice_msgs::FoundObjectArray &msg)
 }
 
 void RobotPosCallback(const geometry_msgs::Pose2D &msg)
-//void RobotPosCallback(const geometry_msgs::Vector3 &msg)
+  //void RobotPosCallback(const geometry_msgs::Vector3 &msg)
 {
   alice.pos_global.x = msg.x;
   alice.pos_global.y = msg.y;
   //alice.pos_global.z = msg.z;
   alice.pos_global.z = msg.theta;  // 0 ~ PI*2
-  
+
   while(alice.pos_global.z < 0 || alice.pos_global.z > (PI*2))
   {
     if(alice.pos_global.z < 0)
