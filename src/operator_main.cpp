@@ -237,8 +237,13 @@ private:
   {
     dist_to_dest = sqrt(pow(dest_global.x-pos_global.x, 2) + (pow(dest_global.y-pos_global.y, 2)));
     angle_to_dest_global = atan2(dest_global.y-pos_global.y, dest_global.x-pos_global.x);
-    angle_to_dest = acosf((cos(angle_to_dest_global)*cos(pos_global.z)) + (sin(angle_to_dest_global)*sin(pos_global.z)));
-    cross = (cos(angle_to_dest_global)*sin(pos_global.z)) - (sin(angle_to_dest_global)*cos(pos_global.z));
+    angle_to_dest = angle_to_dest_global - pos_global.z;  //acosf((cos(angle_to_dest_global)*cos(pos_global.z)) + (sin(angle_to_dest_global)*sin(pos_global.z)));
+    //if(pos_global.z > PI)
+    //  angle_to_dest += 2*PI;
+    //cross = (cos(angle_to_dest_global)*sin(pos_global.z)) - (sin(angle_to_dest_global)*cos(pos_global.z));
+
+    dest_local.x = cos(angle_to_dest) * dist_to_dest;
+    dest_local.y = sin(angle_to_dest) * dist_to_dest;
 
     cout
       << "position    : " << pos_global.x << ", " << pos_global.y << endl
@@ -246,19 +251,8 @@ private:
       << "destination : " << dest_global.x << ", " << dest_global.y << endl
       << "dist_to_dest         : " << dist_to_dest << endl
       << "global_angle_to_dest : " << angle_to_dest_global/PI*180 << endl
-      << "cross                : " << cross << endl
+      //<< "cross                : " << cross/PI*180 << endl
       << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
-
-    if(cross < 0)
-    {
-      dest_local.x = cos(angle_to_dest) * dist_to_dest;
-      dest_local.y = sin(angle_to_dest) * dist_to_dest;
-    }
-    else
-    {
-      dest_local.x = cos(-angle_to_dest) * dist_to_dest;
-      dest_local.y = sin(-angle_to_dest) * dist_to_dest;
-    }
 
     switch(strategy)
     {
@@ -318,8 +312,8 @@ private:
     dist_to_ball = sqrt(pow(ball_local.x, 2) + pow(ball_local.y, 2));
     angle_to_ball = atan2(ball_local.y, ball_local.x);
 
-    ball_local.x = cos(angle_to_ball) * dist_to_ball;
-    ball_local.y = sin(angle_to_ball) * dist_to_ball;
+    //ball_local.x = cos(angle_to_ball) * dist_to_ball;
+    //ball_local.y = sin(angle_to_ball) * dist_to_ball;
   }
 
   void Move()
@@ -364,7 +358,7 @@ private:
       {
         if(abs(angle_to_dest/PI*180) > 15 || abs(angle_to_dest/PI*180) < 180-15)
         {
-          if(cross > 0)
+          if(angle_to_dest < 0)
             move_cmd.key = "turn_right_precision";
           else
             move_cmd.key = "turn_left_precision";
@@ -538,7 +532,19 @@ void RobotPosCallback(const geometry_msgs::Pose2D &msg)
   alice.pos_global.x = msg.x;
   alice.pos_global.y = msg.y;
   //alice.pos_global.z = msg.z;
-  alice.pos_global.z = msg.theta;
+  alice.pos_global.z = msg.theta;  // 0 ~ PI*2
+  
+  while(alice.pos_global.z < 0 || alice.pos_global.z > (PI*2))
+  {
+    if(alice.pos_global.z < 0)
+      alice.pos_global.z += (PI*2);
+    else if(alice.pos_global.z > PI*2)
+      alice.pos_global.z -= (PI*2);
+  }
+
+  // 0 ~ PI*2  ->  -PI ~ PI
+  if(alice.pos_global.z > PI)
+    alice.pos_global.z -= (PI*2);
 }
 
 void RobotInit()
