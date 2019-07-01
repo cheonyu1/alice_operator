@@ -24,11 +24,57 @@
 
 #define PI 3.14159294
 
-struct Vector3
+class ROI
 {
-  float x=0;
-  float y=0;
-  float z=0;
+public:
+  double x, y, w, h;
+
+  ROI():x(0),y(0),w(0),h(0){}
+  ROI(double _x, double _y, double _w, double _h)
+  {
+    Set(_x, _y, _w, _h);
+  }
+  void Set(double _x, double _y, double _w, double _h)
+  {
+    x = _x;
+    y = _y;
+    w = _w;
+    h = _h;
+  }
+};
+
+class Vector3
+{
+public:
+  double x, y, z;
+
+  Vector3():x(0),y(0),z(0){};
+  Vector3(double _x, double _y, double _z)
+  {
+    Set(_x, _y, _z);
+  }
+  void Set(double _x, double _y, double _z)
+  {
+    x = _x;
+    y = _y;
+    z = _z;
+  }
+  bool IsIn(double _x, double _y, double _w, double _h)
+  {
+    if( x >= _x && x <= _x + _w && 
+        y >= _y && x <= _y + _h )
+      return true;
+    else
+      return false;
+  }
+  bool IsIn(ROI area)
+  {
+    if( x >= area.x && x <= area.x + area.w && 
+        y >= area.y && x <= area.y + area.h )
+      return true;
+    else
+      return false;
+  }
 };
 
 using namespace std;
@@ -47,6 +93,9 @@ void RobotPosCallback(const geometry_msgs::Pose2D &msg);
 
 //void GazeboCallback(const gazebo_msgs::ModelStates &msg);
 void PositionCallback(const geometry_msgs::Vector3 &msg);
+
+double Deg2Rad(double deg);
+double Rad2Deg(double rad);
 
 struct RoboCupGameControlData control_data; // buffer
 struct RoboCupGameControlReturnData robot_data;
@@ -84,9 +133,9 @@ public:
   Vector3 dest_local;
   Vector3 dest_global;
 
-  float dist_to_dest;
-  float angle_to_dest;
-  float angle_to_dest_global;
+  double dist_to_dest;
+  double angle_to_dest;
+  double angle_to_dest_global;
 
   State state;
   Strategy strategy;
@@ -96,18 +145,20 @@ public:
   int team_index;
 
   bool got_ball;
+  ROI ball_zone;
   bool ball_found;
   Vector3 ball_local;
   Vector3 ball_global;
-  float dist_to_ball;
-  float angle_to_ball;
-  float cross;
+  double dist_to_ball;
+  double angle_to_ball;
+  double cross;
 
   uint8_t last_packet_num;
   ros::Time move_timer;
 
   Alice():state(Initial), penalty(0), last_packet_num(0), speed(2)
   {
+    ball_zone.Set(0.2, -0.2, 0.4, 0.4);
   };
 
   void Init()
@@ -248,12 +299,12 @@ private:
 
     cout
       << "position    : " << pos_global.x << ", " << pos_global.y << endl
-      << "alice angle : " << pos_global.z/PI*180 << endl
+      << "alice angle : " << Rad2Deg(pos_global.z) << endl
       << "destination : " << dest_global.x << ", " << dest_global.y << endl
       << "dist_to_dest         : " << dist_to_dest << endl
-      << "global_angle_to_dest : " << angle_to_dest_global/PI*180 << endl
+      << "global_angle_to_dest : " << Rad2Deg(angle_to_dest_global) << endl
       //<< "cross                : " << cross/PI*180 << endl
-      << "angle_to_dest        : " << angle_to_dest/PI*180 << endl << endl;
+      << "angle_to_dest        : " << Rad2Deg(angle_to_dest) << endl << endl;
 
     switch(strategy)
     {
@@ -278,12 +329,8 @@ private:
       UpdateBall();
       cout
         << "local ball pos : " << ball_local.x << ", " << ball_local.y << endl;
-      if( abs(ball_local.y) < 0.2 && 
-          ball_local.x < 0.6 && 
-          ball_local.x > 0 && 
-          abs((dest_global.z-pos_global.z)/PI*180) < 10 )// && 
-        //((destination.z-PI) - (position.z-PI))/PI*180 < 10 && 
-        //dist_to_ball < 0.8 )
+      if( ball_local.IsIn(ball_zone) && 
+          abs(Rad2Deg(dest_global.z-pos_global.z)) < 10 )// && 
       {
         cout << "?????????????????????????????????????????????????????" << endl;
         dest_global = shot_point;
@@ -322,32 +369,33 @@ private:
     got_ball = false;
     char tmp[10];
 
-    // if destination is not nearby.
-    if( strategy != Stop )
+    // the destination is infront of me. 
+    if( ball_local.IsIn(ball_zone) )
     {
-      // the destination is infront of me. 
-      if( abs(ball_local.y) < 0.2 && 
-          ball_local.x > 0 && 
-          dist_to_ball < 0.45 )
+      got_ball = true;
+      move_cmd.key = "stop";
+      sprintf(tmp, "%d", speed);
+    }
+    // if destination is not nearby.
+    else if( strategy != Stop )
+    {
+      if(abs(Rad2Deg(angle_to_ball)) > 60)
       {
-        got_ball = true;
-        move_cmd.key = "stop";
         sprintf(tmp, "%d", speed);
-//        else
-//        {
-//          move_cmd.key = "stop";
-//          sprintf(tmp, "2");
-//        }
+        if(angle_to_ball > 0)
+          move_cmd.key = "turn_left";
+        else
+          move_cmd.key = "turn_right";
       }
-      else if(abs(angle_to_ball/PI*180) > 10)
+      else if(abs(Rad2Deg(angle_to_ball)) > 30)
       {
-        sprintf(tmp, "%.4f", abs(angle_to_ball*0.8));
-        if(angle_to_ball/PI*180 > 10)
+        sprintf(tmp, "%.4f", abs(angle_to_ball*0.9));
+        if(angle_to_ball > 0)
           move_cmd.key = "turn_left_precision";
-        else //if(angle_to_ball/PI*180 < -10)
+        else
           move_cmd.key = "turn_right_precision";
       }
-      else if(dist_to_ball < 2)
+      else if(dist_to_ball < 1.5)
       {
         move_cmd.key = "forward_precision";
         sprintf(tmp, "%.4f", abs(ball_local.x));
@@ -378,7 +426,7 @@ private:
       if( abs(dest_local.y) < 0.3 &&
           abs(dest_local.x) < 0.3 )
       {
-        float goal_angle = (dest_global.z-PI) - (pos_global.z-PI);
+        double goal_angle = (dest_global.z-PI) - (pos_global.z-PI);
 
         sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
 
@@ -445,7 +493,7 @@ private:
     //      if( abs(local_dest.y) < 0.3 &&
     //          abs(local_dest.x) < 0.3 )
     //      {
-    //        float goal_angle = (destination.z-PI) - (position.z-PI);
+    //        double goal_angle = (destination.z-PI) - (position.z-PI);
     //
     //        sprintf(tmp, "%d", (int)(abs(goal_angle)/PI*180));
     //
@@ -820,10 +868,10 @@ void PrintRobotInfo(RobotInfo &player)
 //    {
 //      alice.position.x = msg.pose[i].position.x;
 //      alice.position.y = msg.pose[i].position.y;
-//      float q_x = msg.pose[i].orientation.x;
-//      float q_y = msg.pose[i].orientation.y;
-//      float q_z = msg.pose[i].orientation.z;
-//      float q_w = msg.pose[i].orientation.w;
+//      double q_x = msg.pose[i].orientation.x;
+//      double q_y = msg.pose[i].orientation.y;
+//      double q_z = msg.pose[i].orientation.z;
+//      double q_w = msg.pose[i].orientation.w;
 //      //alice.position.z = atan2(2*(q_x*q_w + q_y*q_z), 1-2*(q_z*q_z + q_w*q_w)) + PI;
 //      //cout << "alice pos z : " << alice.position.z/PI*180 <<endl;
 //    }
@@ -834,5 +882,24 @@ void PrintRobotInfo(RobotInfo &player)
 //{
 //  alice.position.z = msg.z;
 //}
+
+double Deg2Rad(double deg)
+{
+  return deg/180*PI;
+}
+
+double Rad2Deg(double rad)
+{
+  return rad/PI*180;
+}
+
+
+
+
+
+
+
+
+
 
 
