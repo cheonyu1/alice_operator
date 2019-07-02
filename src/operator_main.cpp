@@ -34,6 +34,7 @@ public:
   {
     Set(_x, _y, _w, _h);
   }
+
   void Set(double _x, double _y, double _w, double _h)
   {
     x = _x;
@@ -53,12 +54,14 @@ public:
   {
     Set(_x, _y, _z);
   }
+
   void Set(double _x, double _y, double _z)
   {
     x = _x;
     y = _y;
     z = _z;
   }
+
   bool IsIn(double _x, double _y, double _w, double _h)
   {
     if( x >= _x && x <= _x + _w && 
@@ -140,18 +143,27 @@ public:
   State state;
   Strategy strategy;
   diagnostic_msgs::KeyValue move_cmd;
+  diagnostic_msgs::KeyValue head_cmd;
   int speed;
 
   int team_index;
 
   bool got_ball;
   ROI ball_zone;
+  
   bool ball_found;
   Vector3 ball_local;
   Vector3 ball_global;
   double dist_to_ball;
   double angle_to_ball;
-  double cross;
+
+  //double cross;
+
+  bool goal_found;
+  Vector3 goal_local;
+  Vector3 goal_global;
+  double dist_to_goal;
+  double angle_to_goal;
 
   uint8_t last_packet_num;
   ros::Time move_timer;
@@ -165,18 +177,20 @@ public:
   {
     move_timer = ros::Time::now();
     id = robot_data.player-1;
-    map_size.x = 9;//14;
-    map_size.y = 6;//9;
+    map_size.x = 14;
+    map_size.y = 9;
     team_index = -1;
   }
 
   void Update()
   {
     ReadControlData();
+    UpdateObject();
+
     SetStrategy();
     SetDestination();
 
-    Move();
+    //Move();
   }
 
 private:
@@ -192,18 +206,18 @@ private:
     {
       if(control_data.kickOffTeam == robot_data.team)
       {
-        set_point.x = -1.0f/14*map_size.x;
+        set_point.x = -1.0f /14*map_size.x;
       }
       else
       {
-        set_point.x = -2.0f/14*map_size.x;
+        set_point.x = -2.0f /14*map_size.x;
       }
-      shot_point.x = 6.0f/14*map_size.x;
+      shot_point.x = 6.0f /14*map_size.x;
     }
     else if(robot_data.player == 2)
     {
-      set_point.x = -6.5f*14/map_size.x;
-      shot_point.x = -6.0f*14/map_size.x;
+      set_point.x = -6.5f /14*map_size.x;
+      shot_point.x = -6.0f /14*map_size.x;
     }
 
     if(team_index == 1)
@@ -315,6 +329,7 @@ private:
     case GoToSetPosition:
       UpdatePoints();
       dest_global = set_point;
+      Move();
       break;
 
     case GoalKeep:
@@ -326,19 +341,17 @@ private:
       break;
 
     case Attack:
-      UpdateBall();
-      cout
-        << "local ball pos : " << ball_local.x << ", " << ball_local.y << endl;
-      if( ball_local.IsIn(ball_zone) && 
-          abs(Rad2Deg(dest_global.z-pos_global.z)) < 10 )// && 
+      if( got_ball )//&& 
+//          abs(Rad2Deg(dest_global.z-pos_global.z)) < 10 )// && 
       {
-        cout << "?????????????????????????????????????????????????????" << endl;
-        dest_global = shot_point;
+        MoveToGoal();
+        //dest_global = shot_point;
       }
       else
       {
-        dest_global = ball_global;
-        speed = 1;
+        MoveToBall();
+        //dest_global = ball_global;
+        //speed = 1;
       }
       break;
 
@@ -348,7 +361,7 @@ private:
     }
   }
 
-  void UpdateBall()
+  void UpdateObject()
   {
     //ball_found = true;
     if(ball_found)
@@ -360,14 +373,29 @@ private:
     dist_to_ball = sqrt(pow(ball_local.x, 2) + pow(ball_local.y, 2));
     angle_to_ball = atan2(ball_local.y, ball_local.x);
 
-    //ball_local.x = cos(angle_to_ball) * dist_to_ball;
-    //ball_local.y = sin(angle_to_ball) * dist_to_ball;
+    if(goal_found)
+    {
+      goal_global.x = pos_global.x + (cos(pos_global.z)*goal_local.x) - (sin(pos_global.z)*goal_local.y);
+      goal_global.y = pos_global.y + (sin(pos_global.z)*goal_local.x) + (cos(pos_global.z)*goal_local.y);
+    }
+
+    dist_to_goal = sqrt(pow(goal_local.x, 2) + pow(goal_local.y, 2));
+    angle_to_goal = atan2(goal_local.y, goal_local.x);
   }
 
   void MoveToBall()
   {
     got_ball = false;
     char tmp[10];
+
+    if(!ball_found)
+    {
+      head_cmd.key = "head_searching";
+    }
+    else
+    {
+      head_cmd.key = "head_tracking";
+    }
 
     // the destination is infront of me. 
     if( ball_local.IsIn(ball_zone) )
@@ -377,7 +405,7 @@ private:
       sprintf(tmp, "%d", speed);
     }
     // if destination is not nearby.
-    else if( strategy != Stop )
+    else if( strategy != Stop && ball_found)
     {
       if(abs(Rad2Deg(angle_to_ball)) > 60)
       {
@@ -399,6 +427,62 @@ private:
       {
         move_cmd.key = "forward_precision";
         sprintf(tmp, "%.4f", abs(ball_local.x));
+      }
+      else
+      {
+        move_cmd.key = "forward";
+        sprintf(tmp, "%d", speed);
+      }
+    }
+    else
+    {
+      move_cmd.key = "stop";
+      sprintf(tmp, "3");
+    }
+
+    move_cmd.value = tmp;
+  }
+
+  void MoveToGoal()
+  {
+    char tmp[10];
+
+    head_cmd.key = "head_searching";
+    if(ball_found && !ball_local.IsIn(ball_zone))
+    {
+      got_ball = false;
+    }
+
+    else if( strategy != Stop && goal_found)
+    {
+      if(abs(Rad2Deg(angle_to_goal)) > 60)
+      {
+        if(angle_to_goal > 0)
+          move_cmd.key = "centered_right";
+        else
+          move_cmd.key = "centered_left";
+        sprintf(tmp, "%d", speed);
+      }
+      else if(abs(Rad2Deg(angle_to_goal)) > 30)
+      {
+        if(angle_to_goal > 0)
+          move_cmd.key = "centered_right_precision";
+        else
+          move_cmd.key = "centered_left_precision";
+        sprintf(tmp, "%.4f", abs(angle_to_goal*0.9));
+      }
+      else if(dist_to_goal < 1.5)
+      {
+        if(ball_local.y > 0)
+        {
+          move_cmd.key = "left_kick";//forward_precision";
+        }
+        else
+        {
+          move_cmd.key = "right_kick";
+        }
+        sprintf(tmp, "%d", speed);
+        //sprintf(tmp, "%.4f", abs(goal_local.x));
       }
       else
       {
@@ -562,7 +646,8 @@ void ROS_Thread()
   //  ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/robot_state", 10, RobotPosCallback);
   ros::Subscriber sub_robot_pos = nh.subscribe("/heroehs/alice/global_position", 10, RobotPosCallback);  // geometry_msgs::Pose2D
 
-  ros::Publisher pub_move_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/move_command", 10);
+  ros::Publisher pub_move_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/alice/move_command", 10);
+  ros::Publisher pub_head_cmd    = nh.advertise<diagnostic_msgs::KeyValue>("/heroehs/alice/head_command", 10);
   ros::Publisher pub_game_state  = nh.advertise<std_msgs::UInt8>("/game_controller/state", 10);
   ros::Publisher pub_team_index  = nh.advertise<std_msgs::UInt8>("/game_controller/team_index", 10);
   ros::Publisher pub_penalty     = nh.advertise<std_msgs::UInt8>("/heroehs/alice/penalty", 10);
@@ -584,22 +669,23 @@ void ROS_Thread()
     penalty_msg.data = (uint8_t)alice.penalty;                                                  
     pub_penalty.publish(penalty_msg);
 
-    std_msgs::UInt8 team_index_msg;
     if(alice.team_index != -1)
     {
+      std_msgs::UInt8 team_index_msg;
       team_index_msg.data = alice.team_index;
       pub_team_index.publish(team_index_msg);
     }
 
-    geometry_msgs::Vector3 dest_global_msg;
     if(control_data.state == STATE_READY)
     {
+      geometry_msgs::Vector3 dest_global_msg;
       dest_global_msg.x = alice.dest_global.x;
       dest_global_msg.y = alice.dest_global.y;
       dest_global_msg.z = alice.dest_global.z;
       pub_destination.publish(dest_global_msg);
     }
 
+    pub_head_cmd.publish(alice.head_cmd);
     pub_move_cmd.publish(alice.move_cmd);
 
     ros::spinOnce();
