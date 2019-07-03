@@ -360,12 +360,26 @@ private:
       break;
 
     case GoalKeep:
-      dest_global = pos_global;
+      //dest_global = pos_global;
+
       if(team_index == 0)
-        dest_global.z = 0;
+        pos_global.z = 0;
+        //dest_global.z = 0;
       else
-        dest_global.z = PI;
-      Move();
+        pos_global.z = PI;
+        //dest_global.z = PI;
+
+      if( ball.local.y > 0 && pos_global.y > -1)
+      {
+        move_cmd.key = "left";
+        move_cmd.value = "3";
+      }
+      else if( ball.local.y < 0 && pos_global.y < 1 )
+      {
+        move_cmd.key = "right";
+        move_cmd.value = "3";
+      }
+      //Move();
       break;
 
     case Attack:
@@ -481,19 +495,26 @@ private:
   {
     char tmp[10];
 
-    head_cmd.key = "head_searching";
-
-    if( ball.found && !ball.local.IsIn(ball_zone) ||
-        ball.last_saw + ros::Duration(15) < ros::Time::now() )
+    if( abs(Rad2Deg(goal.angle)) < 20 )
     {
-      got_ball = false;
+      head_cmd.key = "head_searching";
+    }
+    else
+    {
+      head_cmd.key = "head_ball_check";
+
+      if( ball.found && !ball.local.IsIn(ball_zone) ||
+          ball.last_saw + ros::Duration(5) < ros::Time::now() )
+      {
+        got_ball = false;
+      }
     }
 
-    else if( strategy != Stop && goal.last_saw + ros::Duration(5) < ros::Time::now() )
+    if( strategy != Stop && goal.last_saw + ros::Duration(5) < ros::Time::now() )
     {
       if(!goal.found)
       {
-        move_cmd.key = "centered_left";
+        move_cmd.key = "centered_right";
         sprintf(tmp, "%d", speed);
       }
 
