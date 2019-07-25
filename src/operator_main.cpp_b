@@ -116,11 +116,6 @@ struct RoboCupGameControlReturnData robot_data;
 
 mutex mtx;
 
-bool goaled = false;
-static int team_number[2] = {-1, -1};
-static int team_score[2] = {-1, -1};
-
-
 class Alice
 {
 public:
@@ -143,7 +138,6 @@ public:
 
   /// devil's code line
   bool gogogo;
-  bool keeper;
 
 
   int id;
@@ -166,7 +160,6 @@ public:
   Strategy strategy;
   diagnostic_msgs::KeyValue move_cmd;
   diagnostic_msgs::KeyValue head_cmd;
-  diagnostic_msgs::KeyValue  arm_cmd;
   int speed;
 
   int team_index;
@@ -174,10 +167,6 @@ public:
   bool got_ball;
   ROI ball_zone;
   ROI kick_zone;
-
-  int score;
-  bool music_start;
-  int music_num;
 
   Object ball;
   //  bool ball.found;
@@ -200,11 +189,7 @@ public:
 
   Alice():state(Initial), penalty(0), last_packet_num(0), speed(3)
   {
-    music_start = false;
-    music_num = 0;
-    score = -1;
     gogogo = false;
-    keeper = false;
     ball_zone.Set(0.0, -0.5 , 0.55, 1.0 );
     kick_zone.Set(0.0, -0.18, 0.5, 0.36);
   };
@@ -220,8 +205,6 @@ public:
 
   void Update()
   {
-    arm_cmd.key = "arm_motion";
-    arm_cmd.value = "0";
     ReadControlData();
     UpdateObject();
     UpdatePoints();
@@ -229,8 +212,6 @@ public:
     SetStrategy();
     SetDestination();
 
-    GoalCheck();
-    EndCheck();
     //Move();
   }
 
@@ -245,12 +226,7 @@ private:
     shot_point.y = 0;
     shot_point.z = 0;
 
-    if(keeper)
-    {
-      set_point.x = -5.0f /14*map_size.x;
-      shot_point.x = -6.0f /14*map_size.x;
-    }
-    else
+    if(robot_data.player == 1)
     {
       if(control_data.kickOffTeam == robot_data.team)
       {
@@ -262,6 +238,11 @@ private:
         set_point.x = -2.0f /14*map_size.x;
       }
       shot_point.x = 6.0f /14*map_size.x;
+    }
+    else if(robot_data.player == 2)
+    {
+      set_point.x = -5.0f /14*map_size.x;
+      shot_point.x = -6.0f /14*map_size.x;
     }
 
     if(team_index == 1)
@@ -340,7 +321,7 @@ private:
       strategy = Stop;
       break;
     case Play:
-      if(keeper)
+      if(robot_data.player == 2)
         strategy = GoalKeep;
       else
         strategy = Attack;
@@ -361,24 +342,24 @@ private:
     dest_local.x = cos(angle_to_dest) * dist_to_dest;
     dest_local.y = sin(angle_to_dest) * dist_to_dest;
 
-//    cout
-//      //      << endl << endl
-//      << "state  : " << (int)control_data.state << endl//;
-//    << "ball local  : " << ball.local.x << ", "  << ball.local.y  << endl//;
-//    << "ball global : " << ball.global.x << ", " << ball.global.y << endl
-//      << "ball angle  : " << ball.angle << endl << endl
-//      << "goal local  : " << goal.local.x << ", "  << goal.local.y  << endl
-//      << "goal global : " << goal.global.x << ", " << goal.global.y << endl
-//      << "goal angle  : " << goal.angle << endl << endl
-//      << "position    : " << pos_global.x << ", "  << pos_global.y  << endl
-//      << "alice angle : " << Rad2Deg(pos_global.z) << endl << endl
-//      << "destination : " << dest_global.x << ", " << dest_global.y << endl
-//      << "dist_to_dest         : " << dist_to_dest << endl
-//      << "global_angle_to_dest : " << Rad2Deg(angle_to_dest_global) << endl
-//      //      << "cross                : " << cross << endl
-//      << "angle_to_dest        : " << Rad2Deg(angle_to_dest) << endl << endl
-//      << "got ball   : " << got_ball << endl << endl
-//      << "gogogo   : " << (int)gogogo << endl << endl;
+    cout
+      //      << endl << endl
+      << "state  : " << (int)control_data.state << endl//;
+    << "ball local  : " << ball.local.x << ", "  << ball.local.y  << endl//;
+    << "ball global : " << ball.global.x << ", " << ball.global.y << endl
+      << "ball angle  : " << ball.angle << endl << endl
+      << "goal local  : " << goal.local.x << ", "  << goal.local.y  << endl
+      << "goal global : " << goal.global.x << ", " << goal.global.y << endl
+      << "goal angle  : " << goal.angle << endl << endl
+      << "position    : " << pos_global.x << ", "  << pos_global.y  << endl
+      << "alice angle : " << Rad2Deg(pos_global.z) << endl << endl
+      << "destination : " << dest_global.x << ", " << dest_global.y << endl
+      << "dist_to_dest         : " << dist_to_dest << endl
+      << "global_angle_to_dest : " << Rad2Deg(angle_to_dest_global) << endl
+      //      << "cross                : " << cross << endl
+      << "angle_to_dest        : " << Rad2Deg(angle_to_dest) << endl << endl
+      << "got ball   : " << got_ball << endl << endl
+      << "gogogo   : " << (int)gogogo << endl << endl;
 
     //static ros::Time search_timer = ros::Time::now();
     switch(strategy)
@@ -394,17 +375,17 @@ private:
       dest_global = set_point;
       MoveToCenter();
 
-      if(keeper)
+      if(robot_data.player == 2)
       {
         move_cmd.key = "stop";
         move_cmd.value = "3";
       }
 
-//      if(gogogo)
-//      {
-//        move_cmd.key = "forward";
-//        move_cmd.value = "3";
-//      }
+      if(gogogo)
+      {
+        move_cmd.key = "forward";
+        move_cmd.value = "3";
+      }
 
       break;
 
@@ -752,7 +733,7 @@ private:
 
   void Search()
   {
-    if(!keeper)
+    if(id != 1)
     {
       head_cmd.key = "head_searching";
       //cout << "search" << endl;
@@ -860,77 +841,6 @@ private:
       }
     }
   }
-
-
-  void GoalCheck()
-  {
-    static ros::Time ceremony_timer;
-    if(goaled)
-    {
-      for(int i=0 ; i<2 ; i++)
-      {
-        if(team_number[i] == robot_data.team)
-        {
-          if(score != team_score[i])
-          {
-            score = team_score[i];
-            // music play command. 
-            music_num = 0;
-            //cout <<"scooooooooooooooooooooooooooooooooooooooreeeeeeeeeeeeeeeeeeeeeeeeeeee" << score << endl;
-            break;
-          }
-        }
-        else
-        {
-          if(team_score[i] >= 10)
-            music_num = 3;
-          else if(team_score[i] >= 3)
-            music_num = 2;
-          else
-            music_num = 1;
-        }
-      }
-      goaled = false;
-      music_start = true;
-      ceremony_timer = ros::Time::now();
-    }
-
-    if(ceremony_timer + ros::Duration(30) > ros::Time::now())
-    {
-      arm_cmd.value = "1";
-      //move_cmd.key = "stop";
-      //move_cmd.value = "3";
-      //cout << "ceremony go on!" <<endl;
-      // do ceremony!
-    }
-    else
-    {
-      arm_cmd.value = "0";
-      // just for check. 
-      //cout << "no ceremony now.." <<endl;
-    }
-  }
-
-  void EndCheck()
-  {
-    static bool checker = false;
-
-//    cout << "first harf  : " << (int)control_data.firstHalf << endl;
-//    cout << "first state : " << (int)control_data.state << endl;
-//    if(!checker)
-//      cout << "check false" << endl;
-//    else
-//      cout << "check true" << endl;
-
-    if( (int)control_data.firstHalf != 1 && 
-        (int)control_data.state == 4 &&
-        !checker)
-    {
-      music_num = 4;
-      music_start = true;
-      checker = true;
-    }
-  }
 };
 
 int main(int argc, char **argv)
@@ -952,7 +862,7 @@ int main(int argc, char **argv)
   return 0;
 }
 
-///////////////////////////////------------------------------------------------------------------
+
 
 Alice alice;
 
@@ -980,8 +890,6 @@ void ROS_Thread()
   ros::Publisher pub_team_index  = nh.advertise<std_msgs::UInt8>("/game_controller/team_index", 10);
   ros::Publisher pub_penalty     = nh.advertise<std_msgs::UInt8>("/heroehs/alice/penalty", 10);
   ros::Publisher pub_destination = nh.advertise<geometry_msgs::Vector3>("/heroehs/alice/global_destination", 10);
-
-  ros::Publisher pub_music_cmd   = nh.advertise<std_msgs::UInt8>("/heroehs/alice/ceremony", 10);
 
   alice.Init();
 
@@ -1018,19 +926,16 @@ void ROS_Thread()
     pub_head_cmd.publish(alice.head_cmd);
     pub_move_cmd.publish(alice.move_cmd);
 
-    static string last_arm;
-    if(last_arm.compare(alice.arm_cmd.value) != 0)
-    {
-      pub_arm_cmd.publish(alice.arm_cmd);
-      last_arm = alice.arm_cmd.value;
-    }
+    diagnostic_msgs::KeyValue arm_msg;
 
-    if(alice.music_start)
+    if(alice.id == 1)
     {
-      std_msgs::UInt8 music_msg;
-      music_msg.data = alice.music_num;
-      alice.music_start = false;
-      pub_music_cmd.publish(music_msg);
+      arm_msg.key = "arm_motion";
+      if(control_data.state == STATE_PLAYING)
+        arm_msg.value = "1";
+      else
+        arm_msg.value = "0";
+      pub_arm_cmd.publish(arm_msg);
     }
 
     ros::spinOnce();
@@ -1115,11 +1020,10 @@ void RobotInit()
   string option[] = { 
     "player_number", 
     "team_number", 
-    "gogogo", 
-    "keeper"};
-  string value[4];
+    "gogogo"};
+  string value[3];
 
-  ReadConf(file_path, value, option, 4);
+  ReadConf(file_path, value, option, 3);
 
   robot_data.player = atoi(value[0].c_str());
   robot_data.team   = atoi(value[1].c_str());
@@ -1129,10 +1033,6 @@ void RobotInit()
   robot_data.message = GAMECONTROLLER_RETURN_MSG_ALIVE;
   if(atoi(value[2].c_str()) == 1)
     alice.gogogo = true;
-  if(atoi(value[3].c_str()) == 1)
-    alice.keeper = true;
-  else if(atoi(value[3].c_str()) == 0)
-    alice.keeper = false;
 
   //  cout << "   team number : "<< (int)robot_data.team << endl;
   //  cout << " player number : "<< (int)robot_data.player << endl;
@@ -1217,46 +1117,12 @@ void UDP_Thread()
   {
     client_addr_len = sizeof(client_addr);
     recv_len = recvfrom(sock, (char*)&control_data, sizeof(control_data), 0, (sockaddr*)&client_addr, &client_addr_len);
-
-    if(recv_len > 0)
-    {
-      mtx.lock();
-      if(team_number[0] == -1)
-      {
-        team_number[0] = control_data.teams[0].teamNumber;
-        team_number[1] = control_data.teams[1].teamNumber;
-      }
-
-      for(int i=0 ; i<2 ; i++)
-      {
-        if(control_data.teams[i].teamNumber == team_number[0])
-        {
-          if((int)team_score[0] != (int)control_data.teams[i].score && 
-              team_score[0] != -1)
-          {
-            goaled = true;
-          }
-          team_score[0] = control_data.teams[i].score;
-        }
-        else if (control_data.teams[i].teamNumber == team_number[1])
-        {
-          if((int)team_score[1] != (int)control_data.teams[i].score && 
-              team_score[1] != -1)
-          {
-            goaled = true;
-          }
-          team_score[1] = control_data.teams[i].score;
-        }
-      }
-
-      cout << "team number : " << team_number[0] << endl;
-      cout << "     score  : " << team_score[0] << endl;
-      cout << "team number : " << team_number[1] << endl;
-      cout << "     score  : " << team_score[1] << endl;
-      //PrintControlData(control_data);
-      mtx.unlock();
-    }
-
+    //    if(recv_len > 0)
+    //    {
+    //      mtx.lock();
+    //      PrintControlData(control_data);
+    //      mtx.unlock();
+    //    }
     client_addr.sin_port = htons(GAMECONTROLLER_RETURN_PORT);
     client_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);  // set broadcast ip(0.0.0.0)
     //client_addr.sin_addr.s_addr = inet_addr("0.0.0.0");//INADDR_BROADCAST);  // set broadcast ip(0.0.0.0)
@@ -1301,7 +1167,6 @@ void PrintControlData(RoboCupGameControlData &control_data)
   cout << endl;
   cout << "---------------------------------------------------------" << endl;
   cout << endl;
-
 
   for(int i=0 ; i<2 ; i++)
   {
